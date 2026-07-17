@@ -37,6 +37,7 @@ import {
  */
 
 const STARKNET_CHAIN_ID = "393402133025997798000961";
+const UNLOCKED_SESSION_KEY = "f5-unlocked-session-v1";
 
 const REGISTRY_ABI = [
   { type: "function", name: "registerKeys", stateMutability: "nonpayable", inputs: [{ name: "schemeId", type: "uint256" }, { name: "stealthMetaAddress", type: "bytes" }], outputs: [] },
@@ -264,6 +265,7 @@ async function guard(fn) {
 function lockVault() {
   // Wipe only the in-memory identity + derived caches. The encrypted vault stays
   // on disk — this is a lock, not a forget.
+  clearUnlockedSession();
   state.identity = null;
   state.notes = [];
   state.withdrawn = {};
@@ -935,6 +937,7 @@ async function completeIdentitySetup(mnemonic, notice, confirmationError) {
   }
 
   await adoptMnemonic(mnemonic);
+  rememberUnlockedSession(mnemonic);
   state.setup = null;
   state.notice = notice;
   await afterUnlock();
@@ -944,9 +947,34 @@ async function unlockIdentity(kind) {
   const unwrap = kind === "password"
     ? { kind: "password", password: state.unlockPassword }
     : { kind: "wallet", signature: await signIdentityMessage() };
-  await adoptMnemonic(await loadMnemonic(unwrap));
+  const mnemonic = await loadMnemonic(unwrap);
+  await adoptMnemonic(mnemonic);
+  rememberUnlockedSession(mnemonic);
   state.unlockPassword = "";
   await afterUnlock();
+}
+
+/**
+ * Keep the decrypted identity only for this browser tab. sessionStorage survives
+ * reloads but is cleared when the tab closes, preserving the vault's encrypted-at-rest boundary.
+ */
+function rememberUnlockedSession(mnemonic) {
+  try {
+    sessionStorage.setItem(UNLOCKED_SESSION_KEY, JSON.stringify({ version: 1, mnemonic }));
+  } catch { /* Storage can be unavailable in hardened browser modes. */ }
+}
+
+function unlockedSessionMnemonic() {
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(UNLOCKED_SESSION_KEY) ?? "null");
+    return stored?.version === 1 && typeof stored.mnemonic === "string" ? stored.mnemonic : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearUnlockedSession() {
+  try { sessionStorage.removeItem(UNLOCKED_SESSION_KEY); } catch { /* best effort */ }
 }
 
 /** Derive everything from the mnemonic. This is the only place keys come from. */
@@ -1535,5 +1563,23 @@ async function prepareL2Proof(note) {
   r.proof = proof;
 }
 
-render();
+async function boot() {
+  const mnemonic = unlockedSessionMnemonic();
+  if (mnemonic && hasIdentity()) {
+    try {
+      await adoptMnemonic(mnemonic);
+      await afterUnlock();
+    } catch {
+      clearUnlockedSession();
+      state.identity = null;
+      state.notes = [];
+      state.withdrawn = {};
+    }
+  } else if (mnemonic) {
+    clearUnlockedSession();
+  }
+  render();
+}
+
+boot();
 window.addEventListener("hashchange", render);
