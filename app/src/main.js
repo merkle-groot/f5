@@ -38,6 +38,12 @@ import {
 
 const STARKNET_CHAIN_ID = "393402133025997798000961";
 const UNLOCKED_SESSION_KEY = "f5-unlocked-session-v1";
+const VAULT_PATHS = {
+  home: "/vault",
+  deposit: "/vault/deposit",
+  send: "/vault/bridge",
+  receive: "/vault/withdraw",
+};
 
 const REGISTRY_ABI = [
   { type: "function", name: "registerKeys", stateMutability: "nonpayable", inputs: [{ name: "schemeId", type: "uint256" }, { name: "stealthMetaAddress", type: "bytes" }], outputs: [] },
@@ -95,10 +101,29 @@ function chainLabel(key) {
 //////////////////////////////////////////////////////////////*/
 
 function render() {
-  if (location.hash !== "#relay") return renderLanding();
+  const routedView = vaultViewFromPath(location.pathname);
+  if (!routedView) return renderLanding();
+  state.view = routedView;
   app.innerHTML = state.identity ? appShell() : onboardingShell();
   bind();
   if (!state.config) loadConfig();
+}
+
+function vaultViewFromPath(pathname) {
+  const normalized = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+  return Object.entries(VAULT_PATHS).find(([, path]) => path === normalized)?.[0] ?? null;
+}
+
+function navigateVault(view, { replace = false, capture = true, clearMessages = true } = {}) {
+  const path = VAULT_PATHS[view] ?? VAULT_PATHS.home;
+  if (capture) captureForm();
+  state.view = view;
+  if (clearMessages) {
+    state.error = null;
+    state.notice = null;
+  }
+  if (location.pathname !== path) history[replace ? "replaceState" : "pushState"]({}, "", path);
+  render();
 }
 
 /** Chrome shared by both the onboarding and unlocked states. */
@@ -106,7 +131,7 @@ function topbar() {
   const acct = state.account ? `${state.account.slice(0, 6)}…${state.account.slice(-4)}` : "CONNECT";
   return `
     <header class="topbar">
-      <a class="brand" href="#"><span class="brand-mark">${icons.mark}</span><span>F5</span><span class="tag pink">VAULT</span></a>
+      <a class="brand" href="/vault" data-view="home"><span class="brand-mark">${icons.mark}</span><span>F5</span><span class="tag pink">VAULT</span></a>
       <div class="wallet">
         <button class="network"><i class="dot blue"></i> ${state.config?.chainName ?? "Ethereum"}</button>
         <button id="connect" class="account">${acct}</button>
@@ -116,7 +141,7 @@ function topbar() {
 }
 
 function footer() {
-  return `<footer><span>© 2026 F5 / SHIELDED VAULT</span><span><a href="#">Home</a></span></footer>`;
+  return `<footer><span>© 2026 F5 / SHIELDED VAULT</span><span><a href="/">Home</a></span></footer>`;
 }
 
 /** Locked: nothing but the minimal onboarding card. */
@@ -154,8 +179,9 @@ function appShell() {
 function bind() {
   const on = (sel, event, fn) => app.querySelector(sel)?.addEventListener(event, fn);
 
-  app.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => {
-    captureForm(); state.view = b.dataset.view; state.error = null; state.notice = null; render();
+  app.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", (event) => {
+    event.preventDefault();
+    navigateVault(b.dataset.view);
   }));
   on("#connect", "click", () => guard(connectWallet));
   on("#lock", "click", lockVault);
@@ -244,8 +270,7 @@ function bind() {
     captureForm();
     state.send.noteCommitment = el.dataset.sendNote;
     state.send.draft = null;
-    state.view = "send";
-    render();
+    navigateVault("send");
   }));
 
   // Pick an actionable L2 note → open RECEIVE and refresh its on-chain status.
@@ -254,7 +279,7 @@ function bind() {
     const r = state.receive;
     r.selected = el.dataset.pickL2;
     r.proof = null; r.activation = null; r.response = null;
-    state.view = "receive";
+    navigateVault("receive");
     guard(async () => { await refreshSelectedStatus(); });
   }));
 }
@@ -297,17 +322,17 @@ function lockVault() {
   state.view = "home";
   state.receive = { scanned: [], scannedCount: 0, index: {}, selected: null, recipient: "", status: null, activation: null, proof: null, withdrawal: null, response: null };
   state.send = { noteCommitment: "", destinationChainId: "", destinationChosen: false, recipientMode: "self", recipientKey: "", resolved: null, draft: null };
-  render();
+  navigateVault("home", { replace: true, capture: false });
 }
 
 function renderLanding() {
   app.innerHTML = `
     <header class="topbar landing-topbar">
-      <a class="brand" href="#"><span class="brand-mark">${icons.mark}</span><span>F5</span><span class="tag pink">A NODE TO TORNADO CASH</span></a>
-      <nav><a class="active teal-underline" href="#">Protocol</a><a class="pink-underline" href="#docs">Docs</a><a class="launch" href="#relay">OPEN VAULT ↗</a></nav>
+      <a class="brand" href="/"><span class="brand-mark">${icons.mark}</span><span>F5</span><span class="tag pink">A NODE TO TORNADO CASH</span></a>
+      <nav><a class="active teal-underline" href="/">Protocol</a><a class="pink-underline" href="#docs">Docs</a><a class="launch" href="/vault">OPEN VAULT ↗</a></nav>
     </header>
     <main class="landing">
-      <section class="hero"><div class="hero-copy"><span class="sticker teal hero-sticker">★ THE HIGHEST CATEGORY ★</span><h1>BLOW AWAY<br>YOUR <span>TRAIL</span></h1><p>F5 is an independent relayer node. We broadcast your withdrawal and pay the gas, so your fresh wallet stays fresh and nothing on-chain points back at you.</p><div class="hero-actions"><a class="primary hero-primary" href="#relay">OPEN THE VAULT →</a><a class="secondary" href="#how">HOW IT WORKS</a></div><div class="node-pill"><i class="dot teal-dot"></i> NODE ONLINE</div></div><div class="hero-art"><div class="art-dots"></div><div class="trail-bars"><i class="bar blue-bar"></i><i class="bar teal-bar"></i><i class="bar yellow-bar"></i><i class="bar pink-bar"></i><i class="bar orange-bar"></i><i class="bar blue-bar short"></i><i class="bar teal-bar tiny"></i><b></b></div><span class="figure-label">FIG. 01 / CATEGORY F5</span></div></section>
+      <section class="hero"><div class="hero-copy"><span class="sticker teal hero-sticker">★ THE HIGHEST CATEGORY ★</span><h1>BLOW AWAY<br>YOUR <span>TRAIL</span></h1><p>F5 is an independent relayer node. We broadcast your withdrawal and pay the gas, so your fresh wallet stays fresh and nothing on-chain points back at you.</p><div class="hero-actions"><a class="primary hero-primary" href="/vault">OPEN THE VAULT →</a><a class="secondary" href="#how">HOW IT WORKS</a></div><div class="node-pill"><i class="dot teal-dot"></i> NODE ONLINE</div></div><div class="hero-art"><div class="art-dots"></div><div class="trail-bars"><i class="bar blue-bar"></i><i class="bar teal-bar"></i><i class="bar yellow-bar"></i><i class="bar pink-bar"></i><i class="bar orange-bar"></i><i class="bar blue-bar short"></i><i class="bar teal-bar tiny"></i><b></b></div><span class="figure-label">FIG. 01 / CATEGORY F5</span></div></section>
       <section id="how" class="how landing-how"><span class="eyebrow teal-text">THE SIMPLE VERSION</span><h2>THREE SPINS & YOU’RE GONE <span class="blue-text">〰</span></h2><div class="steps">${step("1", "ONE PHRASE", "Twelve words derive your note secrets, your shielded address, and your vault. It is the only thing you ever back up.", "MNEMONIC ROOT", "yellow")}${step("2", "BRIDGE BLIND", "You pay a shielded address using only its public keys. You never learn where the recipient cashes out.", "PUBLIC KEYS ONLY", "pink")}${step("3", "SCAN & LAND", "The recipient finds the note by scanning. Nobody tells them it exists, and they can withdraw anywhere.", "UNLINKABLE", "teal")}</div></section>
       <div class="ticker">NO LOGS ★ NO ADMIN KEYS ★ NON-CUSTODIAL ★ GAS PAID BY THE STORM ★ NO LOGS ★ NO ADMIN KEYS ★</div>
     </main>
@@ -498,7 +523,7 @@ function pill(status) {
 //////////////////////////////////////////////////////////////*/
 
 function flowHead(eyebrow, title, sub) {
-  return `<div class="flow-head"><div><span class="eyebrow">${eyebrow}</span><h2>${title}</h2><p>${sub}</p></div><button class="ghost" data-view="home">← HOME</button></div>`;
+  return `<div class="flow-head"><div><span class="eyebrow">${eyebrow}</span><h2>${title}</h2><p>${sub}</p></div><button class="ghost" data-view="home">← DASHBOARD</button></div>`;
 }
 
 function actionRoute(path, color, delay = 0) {
@@ -1476,7 +1501,7 @@ async function runDeposit() {
   }];
   await saveNotes(state.identity.vaultKey, state.config.scope, state.notes);
   state.notice = `Deposited ${formatEther(BigInt(event.value))} ${config.symbol} at index ${index}. Recoverable from your phrase.`;
-  state.view = "home";
+  navigateVault("home", { replace: true, capture: false, clearMessages: false });
 }
 
 async function reconcileDeposit(hash) {
@@ -1739,4 +1764,4 @@ async function boot() {
 }
 
 boot();
-window.addEventListener("hashchange", render);
+window.addEventListener("popstate", render);
