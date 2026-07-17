@@ -67,7 +67,7 @@ const state = {
   withdrawn: {},
   registered: null,
 
-  send: { noteCommitment: "", destinationChainId: "11155420", recipientKey: "", resolved: null, draft: null },
+  send: { noteCommitment: "", destinationChainId: "", destinationChosen: false, recipientKey: "", resolved: null, draft: null },
   /** Starknet destination health. Bridging to a pool bound to a DIFFERENT L1 pool
    *  loses the funds: StarkGate delivers the ETH but `receive_note` reverts with
    *  NotL1Pool, so no note ever exists to claim it. Never offer it blind. */
@@ -162,6 +162,13 @@ function bind() {
   on("#action", "click", submitFlow);
   on("#dismiss-error", "click", () => { state.error = null; render(); });
   on("#amount", "input", (e) => { e.target.value = sanitizeAmount(e.target.value); state.amount = e.target.value; });
+  on("#send-chain", "change", (event) => {
+    captureForm();
+    state.send.destinationChainId = event.target.value;
+    state.send.destinationChosen = Boolean(event.target.value);
+    state.send.draft = null;
+    render();
+  });
 
   on("#create-identity", "click", startIdentitySetup);
   on("#import-identity", "click", startIdentityImport);
@@ -272,7 +279,7 @@ function lockVault() {
   state.registered = null;
   state.view = "home";
   state.receive = { scanned: [], scannedCount: 0, index: {}, selected: null, recipient: "", status: null, activation: null, proof: null, withdrawal: null, response: null };
-  state.send = { noteCommitment: "", destinationChainId: "11155420", recipientKey: "", resolved: null, draft: null };
+  state.send = { noteCommitment: "", destinationChainId: "", destinationChosen: false, recipientKey: "", resolved: null, draft: null };
   render();
 }
 
@@ -371,7 +378,7 @@ function vaultDock() {
       <div class="vault-actions">
         <button class="primary" data-view="deposit">DEPOSIT</button>
         <button class="secondary-btn" data-view="send">BRIDGE</button>
-        <button class="secondary-btn" data-view="receive">RECEIVE</button>
+        <button class="secondary-btn" data-view="receive">WITHDRAW</button>
       </div>
       ${notesSection()}
     </aside>`;
@@ -477,6 +484,69 @@ function flowHead(eyebrow, title, sub) {
   return `<div class="flow-head"><div><span class="eyebrow">${eyebrow}</span><h2>${title}</h2><p>${sub}</p></div><button class="ghost" data-view="home">← HOME</button></div>`;
 }
 
+function miniFlowNode(icon, title, detail, tone = "") {
+  return `<div class="mini-flow-node ${tone}"><span>${escapeHtml(icon)}</span><div><b>${escapeHtml(title)}</b><small>${escapeHtml(detail)}</small></div></div>`;
+}
+
+function zigzagPath(extra = "") {
+  return `<div class="mini-flow-path ${extra}" aria-hidden="true"><svg viewBox="0 0 160 44" preserveAspectRatio="none"><polyline class="flow-trace" points="0,22 20,8 40,34 60,10 80,32 100,8 120,34 140,12 160,22" /></svg></div>`;
+}
+
+function depositFlowDiagram() {
+  return `<div class="mini-flow-diagram" aria-label="Funds move from your wallet into the Ethereum privacy pool">
+    ${miniFlowNode("YOU", "YOUR WALLET", "PUBLIC FUNDS", "user-node")}
+    ${zigzagPath()}
+    ${miniFlowNode("Ξ", "ETHEREUM POOL", "SHIELDED NOTE", "pool-node")}
+  </div>`;
+}
+
+function bridgeTargets() {
+  const targets = evmChains().map((chain) => ({ id: String(chain.chainId), label: chain.chainName }));
+  if (state.starknet?.configured) targets.push({ id: STARKNET_CHAIN_ID, label: "Starknet Sepolia" });
+  return targets;
+}
+
+function bridgeFlowDiagram(send) {
+  const targets = bridgeTargets();
+  const selected = send.destinationChosen ? targets.find((target) => target.id === send.destinationChainId) : null;
+  if (selected) {
+    return `<div class="mini-flow-diagram bridge-selected" aria-label="Note bridges from Ethereum to ${escapeHtml(selected.label)}">
+      ${miniFlowNode("Ξ", "ETHEREUM POOL", "L1 NOTE", "pool-node")}
+      ${zigzagPath("selected-path")}
+      ${miniFlowNode(chainInitials(selected.label), selected.label, "SHIELDED NOTE", "destination-node")}
+    </div>`;
+  }
+
+  const height = Math.max(82, targets.length * 58);
+  const paths = targets.map((_target, index) => {
+    const y = ((index + 0.5) * height) / Math.max(targets.length, 1);
+    const middle = height / 2;
+    const points = `0,${middle} 22,${middle - 8} 44,${middle + 8} 66,${middle} 92,${(middle + y) / 2 - 7} 118,${(middle + y) / 2 + 7} 140,${y - 7} 160,${y}`;
+    return `<polyline class="flow-trace" style="animation-delay:${index * -0.25}s" points="${points}" />`;
+  }).join("");
+  return `<div class="mini-flow-diagram bridge-fan" aria-label="Ethereum note can bridge to any configured destination">
+    ${miniFlowNode("Ξ", "ETHEREUM POOL", "CHOOSE A BRIDGE", "pool-node")}
+    <div class="mini-flow-fan" style="height:${height}px" aria-hidden="true"><svg viewBox="0 0 160 ${height}" preserveAspectRatio="none">${paths}</svg></div>
+    <div class="mini-flow-targets">${targets.length
+      ? targets.map((target) => miniFlowNode(chainInitials(target.label), target.label, "DESTINATION", "destination-node")).join("")
+      : miniFlowNode("?", "NO BRIDGES", "NOT CONFIGURED", "empty-node")}</div>
+  </div>`;
+}
+
+function withdrawFlowDiagram(note) {
+  const label = note ? chainLabel(note.chain) : "SELECT A NOTE";
+  const detail = note ? `${formatEther(note.value)} ETH` : "FROM THE VAULT";
+  return `<div class="mini-flow-diagram ${note ? "" : "flow-inactive"}" aria-label="Selected note withdraws to your account">
+    ${miniFlowNode(note ? chainInitials(label) : "?", label, detail, "note-node")}
+    ${zigzagPath()}
+    ${miniFlowNode("YOU", "YOUR ACCOUNT", "FINAL RECIPIENT", "user-node")}
+  </div>`;
+}
+
+function chainInitials(label) {
+  return String(label).split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+}
+
 /** Default left pane: a chain map showing where the user's current notes live. */
 function homeView() {
   const b = balances();
@@ -517,7 +587,7 @@ function homeView() {
       <div class="home-actions">
         <button class="primary" data-view="deposit">DEPOSIT →</button>
         <button class="secondary-btn" data-view="send">BRIDGE</button>
-        <button class="secondary-btn" data-view="receive">RECEIVE</button>
+        <button class="secondary-btn" data-view="receive">WITHDRAW</button>
       </div>
       <p class="micro">current shielded notes only ★ spent and withdrawn history is not counted</p>
     </section>`;
@@ -550,6 +620,7 @@ function depositView() {
   return `
     <section class="panel flow-panel">
       ${flowHead("L1 · ETHEREUM", "DEPOSIT", "Put value into the pool. The note's secrets come from your phrase, so it survives a wiped browser.")}
+      ${depositFlowDiagram()}
       <div class="field-label"><span>FROM</span><span><i class="dot blue"></i> ${config?.chainName ?? "LOADING"}</span></div>
       <div class="amount-field"><div><input id="amount" value="${sanitizeAmount(state.amount)}" inputmode="decimal" autocomplete="off" /><small>Any amount · minimum ${minimum}</small></div><button class="asset">${icons.eth} ${config?.symbol ?? "ETH"}</button></div>
       <div class="field-label pool-label"><span>VARIABLE AMOUNT</span><span>${config ? `${config.vettingFeeBps / 100}% VETTING FEE` : "LOADING"}</span></div>
@@ -580,8 +651,9 @@ function sendView() {
   return `
     <section class="panel flow-panel">
       ${flowHead("L1 · ETHEREUM", "BRIDGE A NOTE", ready.length ? "Spend an L1 note, bridge its value, and deliver it to a shielded address." : "No spendable L1 notes. Deposit, or hit RECOVER.")}
+      ${bridgeFlowDiagram(send)}
       <label class="input-label">L1 NOTE TO SPEND<select id="send-note">${ready.length ? ready.map(noteOption).join("") : `<option value="">No notes</option>`}</select></label>
-      <label class="input-label">BRIDGE TARGET<select id="send-chain">${evmChains().map((c) => chainOption(String(c.chainId), c.chainName)).join("")}${starknetOption()}</select></label>
+      <label class="input-label">BRIDGE TARGET<select id="send-chain"><option value="" disabled ${send.destinationChainId ? "" : "selected"}>Choose a destination</option>${evmChains().map((c) => chainOption(String(c.chainId), c.chainName)).join("")}${starknetOption()}</select></label>
       ${starknetWarning()}
       <label class="input-label">RECIPIENT
         <input id="send-recipient" placeholder="0x… their address (from the registry), or paste Bx,By,Vx,Vy" value="${escapeHtml(send.recipientKey)}" />
@@ -596,12 +668,12 @@ function sendView() {
             ? `C_dest ${short(draft.destNote.cDest.toString())} · bridging ${formatEther(draft.bridgedValue)} ETH after the relay fee.`
             : "You never hold the recipient's private keys, and you don't choose where they cash out. Only they can."}</span>
       </div>
-      <button id="action" class="primary" ${ready.length && !draft?.relayed && !state.busy ? "" : "disabled"}>${action}</button>
+      <button id="action" class="primary" ${ready.length && send.destinationChosen && !draft?.relayed && !state.busy ? "" : "disabled"}>${action}</button>
       <div class="micro">sender needs only (B, V)　★　self-bridge uses your own shielded address</div>
     </section>`;
 }
 
-/** RECEIVE. Keys are derived from the mnemonic — never typed. */
+/** WITHDRAW. Keys are derived from the mnemonic and never typed. */
 function receiveView() {
   const r = state.receive;
   const note = selectedNote();
@@ -617,7 +689,8 @@ function receiveView() {
 
   return `
     <section class="panel flow-panel">
-      ${flowHead("L2 · DESTINATION", "RECEIVE & WITHDRAW", "Scan the destination feed for notes addressed to you, then land one to any address.")}
+      ${flowHead("L2 · DESTINATION", "WITHDRAW A NOTE", "Scan for notes addressed to you, select one, then land it in your account.")}
+      ${withdrawFlowDiagram(note)}
       <div class="notice pink-card"><strong>${r.scannedCount ? `SCANNED ${r.scannedCount} NOTE${r.scannedCount === 1 ? "" : "S"}` : "NOT SCANNED YET"}</strong><span>${r.scanned.length ? `${r.scanned.length} addressed to you. Pick one from the Vault.` : "Everything is fetched and matched in this browser; the relayer never learns which note is yours."}</span></div>
       <div class="key-actions"><button data-scan class="secondary-btn">SCAN NOW</button></div>
       ${note ? `
@@ -1338,6 +1411,10 @@ async function reconcileDeposit(hash) {
 
 async function runSend() {
   const send = state.send;
+
+  if (!send.destinationChosen || !send.destinationChainId) {
+    throw new Error("Choose a bridge destination first.");
+  }
 
   if (send.draft?.proof && !send.draft.relayed) {
     const draft = send.draft;

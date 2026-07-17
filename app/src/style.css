@@ -135,6 +135,27 @@
 .ghost{background:transparent;border:3px solid var(--ink);padding:10px 12px;font:700 11px 'DM Mono';letter-spacing:1px;flex:none}
 .ghost:hover{background:var(--ink);color:var(--yellow)}
 .flow-panel{padding:36px}
+.mini-flow-diagram{display:grid;grid-template-columns:minmax(135px,.9fr) minmax(80px,1fr) minmax(135px,.9fr);align-items:center;gap:14px;margin:0 0 30px;padding:18px;border:4px solid var(--ink);background:var(--cream);box-shadow:4px 4px 0 var(--ink);overflow:hidden}
+.mini-flow-node{display:flex;align-items:center;gap:10px;min-width:0;padding:10px;border:3px solid var(--ink);background:var(--paper)}
+.mini-flow-node>span{display:grid;place-items:center;flex:none;width:34px;height:34px;border:3px solid var(--ink);border-radius:50%;background:var(--paper);font:700 10px 'DM Mono'}
+.mini-flow-node>div{min-width:0}
+.mini-flow-node b,.mini-flow-node small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mini-flow-node b{font:700 11px 'DM Mono';letter-spacing:.5px}
+.mini-flow-node small{margin-top:4px;color:#555;font:500 9px 'DM Mono'}
+.mini-flow-node.user-node{background:var(--pink)}
+.mini-flow-node.pool-node,.mini-flow-node.note-node{background:var(--yellow)}
+.mini-flow-node.destination-node{background:var(--teal)}
+.mini-flow-node.empty-node{opacity:.55}
+.mini-flow-path,.mini-flow-fan{position:relative;min-width:0;height:46px}
+.mini-flow-path svg,.mini-flow-fan svg{display:block;width:100%;height:100%;overflow:visible}
+.flow-trace{fill:none;stroke:var(--ink);stroke-width:4;stroke-linecap:square;stroke-linejoin:miter;stroke-dasharray:11 8;vector-effect:non-scaling-stroke;animation:flow-dash 1.15s linear infinite,flow-pulse 1.8s ease-in-out infinite}
+.bridge-fan{align-items:center}
+.mini-flow-targets{display:flex;flex-direction:column;gap:8px;min-width:0}
+.mini-flow-targets .mini-flow-node{padding:7px 9px}
+.mini-flow-targets .mini-flow-node>span{width:29px;height:29px;font-size:9px}
+.flow-inactive{opacity:.55}
+@keyframes flow-dash{to{stroke-dashoffset:-38}}
+@keyframes flow-pulse{0%,100%{stroke-width:3;opacity:.6}50%{stroke-width:5;opacity:1}}
 .home-panel{padding:44px}
 .home-panel .big-balance{margin:10px 0 0}
 .home-lead{color:#555;font:500 14px 'DM Mono';margin:12px 0 30px}
@@ -191,6 +212,13 @@
   .vault-actions{grid-template-columns:1fr}
   .mnemonic-input-grid{grid-template-columns:repeat(2,1fr);padding:14px;gap:9px}
   .protection-choice{grid-template-columns:1fr}
+  .mini-flow-diagram{grid-template-columns:minmax(92px,1fr) 48px minmax(92px,1fr);gap:7px;padding:12px}
+  .mini-flow-node{display:block;padding:8px}
+  .mini-flow-node>span{width:29px;height:29px;margin-bottom:7px}
+  .mini-flow-node b{font-size:9px}
+  .mini-flow-node small{font-size:8px}
+  .mini-flow-targets .mini-flow-node{display:flex}
+  .mini-flow-targets .mini-flow-node>span{margin-bottom:0}
   .map-heading{align-items:flex-start;flex-direction:column}
   .map-total{text-align:left}
   .note-map{grid-template-columns:1fr;padding:24px 18px;gap:34px}
@@ -200,3 +228,4 @@
   .map-destinations{padding-left:0}
   .map-destinations::before,.map-destination::before{display:none}
 }
+@media(prefers-reduced-motion:reduce){.flow-trace{animation:none;stroke-dasharray:none}}
