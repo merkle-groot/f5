@@ -111,8 +111,13 @@
 
 /* Notes, grouped by where they live */
 .notes-section{display:flex;flex-direction:column}
+.notes-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:4px solid var(--ink);padding-bottom:12px}
+.notes-heading h2{margin:0;font-size:22px}
+.spent-toggle{display:flex;align-items:center;gap:8px;font:700 10px 'DM Mono';letter-spacing:.5px;cursor:pointer}
+.spent-toggle input{width:18px;height:18px;margin:0;accent-color:var(--ink)}
+.notes-scan-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0 2px;color:#666;font:500 10px 'DM Mono';line-height:1.4}
+.notes-scan-row .unlock{flex:none}
 .group-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:20px 0 4px;border-bottom:3px solid var(--ink);padding-bottom:7px}
-.group-heading:first-child{margin-top:4px}
 .group-heading h3{margin:0;font:700 13px 'DM Mono';letter-spacing:1px}
 .vnote{display:flex;align-items:center;gap:12px;border:3px solid var(--ink);padding:12px 14px;margin-top:10px;background:var(--paper)}
 .vnote>div{flex:1;min-width:0}
@@ -123,6 +128,10 @@
 .vnote[role=button]:hover{background:var(--yellow)}
 .vnote[role=button]:focus-visible{outline:4px solid var(--blue);outline-offset:2px}
 .vnote.is-past{opacity:.5}
+.note-more{align-self:flex-end;margin-top:10px;border:3px solid var(--ink);background:var(--paper);padding:7px 10px;font:700 10px 'DM Mono';letter-spacing:.5px;box-shadow:3px 3px 0 var(--ink)}
+.note-more:hover{background:var(--yellow)}
+.spinner{display:inline-block;width:12px;height:12px;margin-right:7px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;vertical-align:-2px;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 
 /* A disabled primary during a long op must read as WORKING, not broken. Proving blocks the main
    thread, so a CSS animation would freeze — use a static, obviously-active treatment instead. */

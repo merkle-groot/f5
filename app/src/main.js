@@ -60,6 +60,8 @@ const state = {
   error: null,
   notice: null,
   busy: false,
+  noteProgress: null,
+  notesUi: { showSpent: false, expanded: {} },
 
   /** { mnemonic, master, shielded, vaultKey } — derived, never persisted raw. */
   identity: null,
@@ -229,8 +231,19 @@ function bind() {
   on("#unlock-password", "click", () => guard(() => unlockIdentity("password")));
   on("#reveal-mnemonic", "click", () => { state.notice = `Recovery phrase. Write it down:\n\n${state.identity.mnemonic}`; render(); });
   on("#register-keys", "click", () => guard(registerShieldedAddress));
-  on("#recover-l1", "click", () => guard(recoverL1Notes));
-  app.querySelectorAll("[data-scan]").forEach((b) => b.addEventListener("click", () => guard(scanForNotes)));
+  on("#recover-l1", "click", () => guard(recoverL1Notes, "recover"));
+  app.querySelectorAll("[data-scan]").forEach((b) => b.addEventListener("click", () => guard(scanForNotes, "scan")));
+  on("#toggle-spent-notes", "change", (event) => {
+    captureForm();
+    state.notesUi.showSpent = event.target.checked;
+    render();
+  });
+  app.querySelectorAll("[data-expand-notes]").forEach((button) => button.addEventListener("click", () => {
+    captureForm();
+    const group = button.dataset.expandNotes;
+    state.notesUi.expanded[group] = !state.notesUi.expanded[group];
+    render();
+  }));
   on("#resolve-recipient", "click", () => guard(resolveRecipient));
 
   const wordInputs = [...app.querySelectorAll("[data-mnemonic-word]")];
@@ -285,9 +298,10 @@ function bind() {
 }
 
 /** Run an async handler with uniform busy/error handling. */
-async function guard(fn) {
+async function guard(fn, noteProgress = null) {
   if (state.busy) return;
   state.busy = true;
+  state.noteProgress = noteProgress;
   state.error = null;
   captureForm();
 
@@ -304,6 +318,7 @@ async function guard(fn) {
     if (error?.code !== 4001) state.error = describeError(error);
   } finally {
     state.busy = false;
+    state.noteProgress = null;
     render();
     // The error banner lives at the top of the workspace but actions sit at the bottom, so a
     // failure can land off-screen. Bring it into view rather than looking like a no-op.
@@ -473,25 +488,47 @@ function balanceCard() {
     </section>`;
 }
 
-/** All notes, grouped by where they live. Spent/withdrawn are shown as history. */
+/** All notes, grouped by where they live, with compact previews and optional history. */
 function notesSection() {
-  const l1Ready = state.notes.filter((n) => n.status !== "spent");
-  const l1Spent = state.notes.filter((n) => n.status === "spent");
+  const showSpent = state.notesUi.showSpent;
+  const l1Notes = state.notes.filter((n) => showSpent || n.status !== "spent");
+  const recovering = state.noteProgress === "recover";
+  const scanning = state.noteProgress === "scan";
   return `
     <section class="notes-section">
-      <div class="group-heading"><h3>L1 · ETHEREUM</h3><button id="recover-l1" class="unlock">RECOVER</button></div>
-      ${l1Ready.length || l1Spent.length
-        ? [...l1Ready, ...l1Spent].map(l1NoteRow).join("")
-        : `<div class="note-empty">No L1 notes.<br><span>Deposit, or hit RECOVER to rebuild from your phrase.</span></div>`}
+      <div class="notes-heading">
+        <h2>NOTES</h2>
+        <label class="spent-toggle"><input id="toggle-spent-notes" type="checkbox" ${showSpent ? "checked" : ""}><span>SHOW SPENT</span></label>
+      </div>
+      <div class="notes-scan-row">
+        <span>Notes found across your shielded routes</span>
+        <button data-scan class="unlock" ${state.busy ? "disabled" : ""}>${progressLabel(scanning, "SCAN", "SCANNING")}</button>
+      </div>
 
-      ${evmChains().map((c, i) => `
-        <div class="group-heading"><h3>L2 · ${escapeHtml(c.chainName)}</h3>${i === 0 ? `<button data-scan class="unlock">SCAN</button>` : ""}</div>
+      <div class="group-heading"><h3>L1 · ETHEREUM</h3><button id="recover-l1" class="unlock" ${state.busy ? "disabled" : ""}>${progressLabel(recovering, "RECOVER", "RECOVERING")}</button></div>
+      ${notePreview("l1", l1Notes, l1NoteRow, showSpent ? "No L1 notes." : "No active L1 notes.", "Deposit, or recover notes from your phrase.")}
+
+      ${evmChains().map((c) => `
+        <div class="group-heading"><h3>L2 · ${escapeHtml(c.chainName)}</h3></div>
         ${l2Group(c.key)}`).join("")}
 
       ${state.starknet?.configured || l2List("starknet").length ? `
-        <div class="group-heading"><h3>L2 · STARKNET</h3>${evmChains().length === 0 ? `<button data-scan class="unlock">SCAN</button>` : ""}</div>
+        <div class="group-heading"><h3>L2 · STARKNET</h3></div>
         ${l2Group("starknet")}` : ""}
     </section>`;
+}
+
+function progressLabel(active, idleLabel, activeLabel) {
+  return active ? `<span class="spinner" aria-hidden="true"></span>${activeLabel}` : idleLabel;
+}
+
+function notePreview(group, list, renderRow, emptyTitle, emptyHint) {
+  if (!list.length) return `<div class="note-empty">${emptyTitle}<br><span>${emptyHint}</span></div>`;
+  const expanded = Boolean(state.notesUi.expanded[group]);
+  const visible = expanded ? list : list.slice(0, 2);
+  return `${visible.map(renderRow).join("")}${list.length > 2
+    ? `<button class="note-more" data-expand-notes="${escapeHtml(group)}">${expanded ? "SHOW LESS" : `MORE +${list.length - 2}`}</button>`
+    : ""}`;
 }
 
 function l1NoteRow(n) {
@@ -506,12 +543,13 @@ function l1NoteRow(n) {
 }
 
 function l2Group(chain) {
-  const list = l2List(chain);
+  const list = l2List(chain).filter((x) => state.notesUi.showSpent || x.status !== "withdrawn");
   if (!list.length) {
     const scanned = state.receive.scannedCount > 0;
-    return `<div class="note-empty">${scanned ? "Nothing addressed to you here." : "Hit SCAN to search for notes."}</div>`;
+    const title = state.notesUi.showSpent ? "No notes here." : "No active notes here.";
+    return `<div class="note-empty">${title}<br><span>${scanned ? "Nothing else is addressed to you on this chain." : "Scan to search for shielded notes."}</span></div>`;
   }
-  return list.map((x) => {
+  return notePreview(`l2-${chain}`, list, (x) => {
     const actionable = x.status === "spendable" || x.status === "activate";
     const attr = actionable ? `data-pick-l2="${x.id}" role="button" tabindex="0"` : "";
     return `
@@ -520,7 +558,7 @@ function l2Group(chain) {
         <div><strong>${formatEther(BigInt(x.value))} ETH</strong><small>${short(x.id)}</small></div>
         ${pill(x.status)}
       </div>`;
-  }).join("");
+  }, "", "");
 }
 
 const PILL = {
@@ -827,7 +865,7 @@ function receiveView() {
       ${flowHead("L2 · DESTINATION", "WITHDRAW A NOTE", "Scan for notes addressed to you, select one, then land it in your account.")}
       ${withdrawFlowDiagram(note)}
       <div class="notice pink-card"><strong>${r.scannedCount ? `SCANNED ${r.scannedCount} NOTE${r.scannedCount === 1 ? "" : "S"}` : "NOT SCANNED YET"}</strong><span>${r.scanned.length ? `${r.scanned.length} addressed to you. Pick one from the Vault.` : "Everything is fetched and matched in this browser; the relayer never learns which note is yours."}</span></div>
-      <div class="key-actions"><button data-scan class="secondary-btn">SCAN NOW</button></div>
+      <div class="key-actions"><button data-scan class="secondary-btn" ${state.busy ? "disabled" : ""}>${progressLabel(state.noteProgress === "scan", "SCAN NOW", "SCANNING")}</button></div>
       ${note ? `
         <div class="flow-step active"><span class="flow-number">▸</span><div><span class="eyebrow">SELECTED</span><h3>${formatEther(note.value)} ETH · ${chainLabel(note.chain)}</h3><p>${statusLabel(st)}</p></div></div>
         <label class="input-label">FINAL RECIPIENT ${note.chain === "starknet" ? "(STARKNET FELT252)" : "ADDRESS"}<input id="recv-recipient" placeholder="${note.chain === "starknet" ? "0x… or decimal felt252" : "0x… where the funds actually land"}" value="${escapeHtml(r.recipient)}" /></label>`
