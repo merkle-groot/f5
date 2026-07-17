@@ -697,7 +697,6 @@ function metroMap(destinations, l1Total, l1NoteCount) {
         <text class="metro-chain-total" x="108" y="${centerY - 25}"><tspan>${fmt(l1Total)}</tspan><tspan class="metro-currency" dx="7">ETH</tspan></text>
         <text class="metro-chain-name" x="108" y="${centerY + 4}">ETHEREUM</text>
         <text class="metro-chain-detail" x="108" y="${centerY + 30}">${l1NoteCount} READY NOTE${l1NoteCount === 1 ? "" : "S"}</text>
-        <circle class="metro-station" cx="277" cy="${centerY}" r="20" />
       </g>
       ${destinationCards}
       <image class="metro-interchange" href="/f5-eye.svg" x="399" y="${centerY - 32}" width="64" height="64" />
