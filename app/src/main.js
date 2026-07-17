@@ -423,20 +423,38 @@ function vaultDock() {
         <button class="secondary-btn" data-view="receive">WITHDRAW</button>
       </div>
       ${notesSection()}
+      <section class="vault-recovery">
+        <span class="eyebrow">RECOVERY</span>
+        <button id="reveal-mnemonic" class="secondary-btn">SHOW RECOVERY PHRASE</button>
+      </section>
     </aside>`;
 }
 
 /** The published half of the identity, plus its ERC-6538 registration state. */
 function identityStrip() {
   const { B, V } = state.identity.shielded;
-  const status = state.registered === true ? "PUBLISHED" : "LOCAL";
+  const status = !state.account
+    ? "CONNECT WALLET"
+    : state.registered === true
+      ? "PUBLISHED"
+      : state.registered === false
+        ? "NOT PUBLISHED"
+        : "CHECKING";
+  const canPublish = state.registered === false && !state.busy;
+  const publishLabel = state.registered === true
+    ? "ADDRESS PUBLISHED"
+    : state.registered === false
+      ? "PUBLISH ADDRESS"
+      : !state.account
+        ? "CONNECT WALLET TO PUBLISH"
+        : "CHECKING REGISTRY";
   return `
     <section class="identity-strip">
-      <div class="card-heading"><h2>YOUR ADDRESS</h2><span class="online"><i class="dot teal-dot"></i> ${status}</span></div>
+      <div class="card-heading"><h2>SHIELDED ADDRESS</h2><span class="online"><i class="dot teal-dot"></i> ${status}</span></div>
+      <p class="identity-copy">Publish this address to let other users send shielded notes directly to your vault.</p>
       <div class="meta-address"><b>B</b> ${short(B[0].toString())}, ${short(B[1].toString())}<br><b>V</b> ${short(V[0].toString())}, ${short(V[1].toString())}</div>
-      <div class="key-actions">
-        <button id="register-keys" class="secondary-btn">${state.registered === true ? "RE-PUBLISH" : "PUBLISH"}</button>
-        <button id="reveal-mnemonic" class="secondary-btn">SHOW PHRASE</button>
+      <div class="key-actions identity-actions">
+        <button id="register-keys" class="secondary-btn" ${canPublish ? "" : "disabled"}>${publishLabel}</button>
       </div>
     </section>`;
 }
@@ -1040,6 +1058,8 @@ async function connectWallet() {
   if (!window.ethereum) throw new Error("Install an Ethereum wallet to continue.");
   const [account] = await window.ethereum.request({ method: "eth_requestAccounts" });
   state.account = account;
+  state.registered = null;
+  await checkRegistration();
 }
 
 async function signIdentityMessage() {

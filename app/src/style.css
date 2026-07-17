@@ -86,9 +86,15 @@
 
 /* Identity strip */
 .identity-strip .card-heading h2{font-size:18px}
+.identity-strip .identity-copy{margin:12px 0 14px;color:#555;font-size:13px;line-height:1.45}
 .identity-strip .meta-address{background:var(--cream);color:var(--ink);margin:14px 0}
 .identity-strip .meta-address b{color:var(--blue)}
 .identity-strip .secondary-btn{padding:11px;font-size:11px;box-shadow:3px 3px 0 var(--ink)}
+.identity-strip .identity-actions{margin-bottom:0}
+.identity-strip .secondary-btn:disabled{opacity:.55;cursor:not-allowed;box-shadow:none}
+
+.vault-recovery{border-top:3px solid var(--ink);padding-top:18px}
+.vault-recovery .secondary-btn{width:100%;margin-top:10px;padding:12px;box-shadow:3px 3px 0 var(--ink)}
 
 /* Balance */
 .balance-card{border:4px solid var(--ink);background:var(--yellow);box-shadow:5px 5px 0 var(--ink);padding:22px}
