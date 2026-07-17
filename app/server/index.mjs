@@ -430,6 +430,18 @@ app.get("/api/l1/state-proof/:commitment", async (req, res) => {
     const ordered = [...logs].sort((a, b) => Number(a.args._index - b.args._index));
     const leaves = ordered.map((log) => log.args._leaf);
     const commitment = BigInt(req.params.commitment);
+    // An empty pool has no leaves, and LeanIMT's insertMany rejects an empty array with the
+    // singularly unhelpful "There are no leaves to add". Answer the question that was actually
+    // asked — the commitment is not in the tree — rather than leaking that internal error. This is
+    // the normal state of a freshly deployed pool, and of a vault still holding notes from a
+    // previous deployment.
+    if (leaves.length === 0) {
+      return res.status(404).json({
+        error: `The pool at ${poolAddress} has no deposits yet, so no commitment can be proven against it. `
+          + "If this note came from an earlier deployment it cannot be spent here. Hit RECOVER to rebuild "
+          + "your notes from the current pool.",
+      });
+    }
     const tree = new LeanIMT((left, right) => poseidon([left, right]));
     tree.insertMany(leaves);
     const index = tree.indexOf(commitment);
@@ -624,14 +636,23 @@ async function getStarknetEvents(provider, poolAddress, eventName) {
   const out = [];
   let token;
   do {
-    const page = await provider.getEvents({
+    const page = await withRetry(() => provider.getEvents({
       address: poolAddress,
       keys: [[selector]],
       from_block: { block_number: Number(process.env.STARKNET_DEPLOYMENT_BLOCK ?? 0) },
       to_block: "latest",
       chunk_size: 100,
       ...(token ? { continuation_token: token } : {}),
-    });
+    }));
+    // starknet.js hands back the bare RPC `result`, so a throttled/degraded node yields `undefined`
+    // rather than throwing — which surfaced as "Cannot read properties of undefined (reading
+    // 'events')" from deep inside a Promise.all, naming neither the node nor the event.
+    if (!page) {
+      throw new Error(
+        `Starknet RPC returned no result for ${eventName} on ${poolAddress}; the node is likely ` +
+        `throttling. Check STARKNET_RPC_URL and STARKNET_DEPLOYMENT_BLOCK.`,
+      );
+    }
     for (const event of page.events ?? []) {
       out.push({
         commitment: fromU256(event.keys[1], event.keys[2]),

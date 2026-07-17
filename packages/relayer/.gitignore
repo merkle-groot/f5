@@ -1,5 +1,7 @@
 **/dist
 .npmrc
 
-## Relayer configuration file
+## Relayer configuration files — these hold secrets (signer key, RPC URLs with embedded
+## API keys) and must never be tracked. Commit the *.example.json templates instead.
 config.json
+config.sepolia.json

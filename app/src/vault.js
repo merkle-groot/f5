@@ -1,4 +1,5 @@
 import { generateMnemonic, english } from "viem/accounts";
+import { validateMnemonic } from "@scure/bip39";
 
 /**
  * Local identity + note storage.
@@ -38,6 +39,23 @@ const dec = new TextDecoder();
 
 export function createMnemonic() {
   return generateMnemonic(english);
+}
+
+/** Normalize and validate a 12-word English BIP-39 phrase, including its checksum. */
+export function validateRecoveryPhrase(value) {
+  const mnemonic = String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  const words = mnemonic ? mnemonic.split(" ") : [];
+  if (words.length !== 12) throw new Error(`Enter exactly 12 words. Found ${words.length}.`);
+
+  const wordlist = new Set(english);
+  const unknown = [...new Set(words.filter((word) => !wordlist.has(word)))];
+  if (unknown.length) {
+    throw new Error(`Not ${unknown.length === 1 ? "a BIP-39 English word" : "BIP-39 English words"}: ${unknown.join(", ")}.`);
+  }
+  if (!validateMnemonic(mnemonic, english)) {
+    throw new Error("Those words do not form a valid BIP-39 phrase. Check their spelling and order.");
+  }
+  return mnemonic;
 }
 
 export function hasIdentity() {
@@ -140,19 +158,37 @@ export async function loadMnemonic(unwrap) {
                           NOTE CACHE
 //////////////////////////////////////////////////////////////*/
 
-export async function saveNotes(vaultKeyHex, notes) {
+/**
+ * Persist the note cache, stamped with the pool `scope` it belongs to.
+ *
+ * A note only means anything against the pool it was deposited into: its secrets are
+ * `Poseidon(master, scope, index)` and its commitment lives in that pool's tree. Redeploy the pool
+ * and every cached note becomes undeadable — but this cache is browser-local, so nothing on-chain
+ * invalidates it. Without the stamp the Vault happily lists notes from a previous deployment as
+ * spendable, and the only symptom is a confusing failure deep in the proving path.
+ */
+export async function saveNotes(vaultKeyHex, scope, notes) {
   const key = await keyFromVaultHex(vaultKeyHex, ["encrypt"]);
-  localStorage.setItem(NOTES_KEY, JSON.stringify(await encryptJson(key, notes)));
+  localStorage.setItem(NOTES_KEY, JSON.stringify(await encryptJson(key, { scope: String(scope), notes })));
 }
 
-export async function loadNotes(vaultKeyHex) {
+/**
+ * Load the note cache for `scope`, discarding notes belonging to any other deployment.
+ *
+ * Returns `[]` rather than throwing on a stale/unreadable cache: notes are re-derivable from the
+ * mnemonic via `recoverNotes`, so dropping the cache is always safe.
+ */
+export async function loadNotes(vaultKeyHex, scope) {
   const stored = JSON.parse(localStorage.getItem(NOTES_KEY) ?? "null");
   if (!stored) return [];
   try {
-    return await decryptJson(await keyFromVaultHex(vaultKeyHex, ["decrypt"]), stored);
+    const decrypted = await decryptJson(await keyFromVaultHex(vaultKeyHex, ["decrypt"]), stored);
+    // Pre-stamp caches were a bare array with no scope. They cannot be attributed to a pool, so
+    // treat them as stale rather than guessing.
+    if (Array.isArray(decrypted)) return [];
+    if (String(decrypted.scope) !== String(scope)) return [];
+    return decrypted.notes ?? [];
   } catch {
-    // A cache we cannot read is not a crisis — the notes are re-derivable from
-    // the mnemonic. Drop it rather than blocking the user.
     return [];
   }
 }
@@ -172,16 +208,26 @@ export async function loadNotes(vaultKeyHex) {
  * fresh browser re-learns nothing about past withdrawals, which is acceptable —
  * this is display history, never a spend authority.
  */
-export async function saveL2History(vaultKeyHex, history) {
+export async function saveL2History(vaultKeyHex, scope, history) {
   const key = await keyFromVaultHex(vaultKeyHex, ["encrypt"]);
-  localStorage.setItem(L2_HISTORY_KEY, JSON.stringify(await encryptJson(key, history)));
+  localStorage.setItem(L2_HISTORY_KEY, JSON.stringify(await encryptJson(key, { scope: String(scope), history })));
 }
 
-export async function loadL2History(vaultKeyHex) {
+/**
+ * Scoped like the note cache: a `C_dest` only exists in the destination pool it was delivered to,
+ * and those are redeployed whenever the L1 pool changes (they bind `l1Pool` immutably). History
+ * from a previous deployment would show withdrawals against notes that no longer exist.
+ */
+export async function loadL2History(vaultKeyHex, scope) {
   const stored = JSON.parse(localStorage.getItem(L2_HISTORY_KEY) ?? "null");
   if (!stored) return {};
   try {
-    return await decryptJson(await keyFromVaultHex(vaultKeyHex, ["decrypt"]), stored);
+    const decrypted = await decryptJson(await keyFromVaultHex(vaultKeyHex, ["decrypt"]), stored);
+    if (!decrypted || typeof decrypted !== "object") return {};
+    // Pre-stamp caches were a bare map; unattributable, so treat as stale.
+    if (!("scope" in decrypted) || !("history" in decrypted)) return {};
+    if (String(decrypted.scope) !== String(scope)) return {};
+    return decrypted.history ?? {};
   } catch {
     return {};
   }

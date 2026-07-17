@@ -14,6 +14,7 @@ import {
   saveL2History,
   saveMnemonic,
   saveNotes,
+  validateRecoveryPhrase,
 } from "./vault.js";
 
 /**
@@ -75,7 +76,10 @@ const state = {
 
 const app = document.querySelector("#app");
 const sdk = () => import("@0xbow/privacy-pools-core-sdk");
-const icons = { mark: `<span class="mark">///</span>`, eth: `<span class="eth">Ξ</span>` };
+const icons = {
+  mark: `<img class="brand-eye" src="/f5-eye.svg" alt="" aria-hidden="true">`,
+  eth: `<span class="eth">Ξ</span>`,
+};
 
 /** The configured EVM L2 destinations, advertised by the server in /api/config. */
 function evmChains() { return state.config?.l2Chains ?? []; }
@@ -111,7 +115,7 @@ function topbar() {
 }
 
 function footer() {
-  return `<footer><span>© 2026 F5 — SHIELDED VAULT</span><span><a href="#">Home</a></span></footer>`;
+  return `<footer><span>© 2026 F5 / SHIELDED VAULT</span><span><a href="#">Home</a></span></footer>`;
 }
 
 /** Locked: nothing but the minimal onboarding card. */
@@ -158,16 +162,57 @@ function bind() {
   on("#dismiss-error", "click", () => { state.error = null; render(); });
   on("#amount", "input", (e) => { e.target.value = sanitizeAmount(e.target.value); state.amount = e.target.value; });
 
-  on("#create-identity", "click", () => guard(startIdentitySetup));
-  on("#import-identity", "click", () => guard(importIdentity));
+  on("#create-identity", "click", startIdentitySetup);
+  on("#import-identity", "click", startIdentityImport);
+  on("#cancel-setup", "click", () => { state.setup = null; state.error = null; render(); });
+  on("#copy-phrase", "click", () => guard(copySetupMnemonic));
   on("#confirm-setup", "click", () => guard(confirmIdentitySetup));
+  on("#confirm-import", "click", () => guard(confirmImportedIdentity));
+  app.querySelectorAll('input[name="setup-kind"]').forEach((input) => input.addEventListener("change", (event) => {
+    if (!state.setup || !event.target.checked) return;
+    state.setup.kind = event.target.value;
+    render();
+    if (event.target.value === "password") app.querySelector("#setup-password")?.focus();
+  }));
   on("#unlock-wallet", "click", () => guard(() => unlockIdentity("wallet")));
   on("#unlock-password", "click", () => guard(() => unlockIdentity("password")));
-  on("#reveal-mnemonic", "click", () => { state.notice = `Recovery phrase — write it down:\n\n${state.identity.mnemonic}`; render(); });
+  on("#reveal-mnemonic", "click", () => { state.notice = `Recovery phrase. Write it down:\n\n${state.identity.mnemonic}`; render(); });
   on("#register-keys", "click", () => guard(registerShieldedAddress));
   on("#recover-l1", "click", () => guard(recoverL1Notes));
   app.querySelectorAll("[data-scan]").forEach((b) => b.addEventListener("click", () => guard(scanForNotes)));
   on("#resolve-recipient", "click", () => guard(resolveRecipient));
+
+  const wordInputs = [...app.querySelectorAll("[data-mnemonic-word]")];
+  const fillImportedPhrase = (value) => {
+    const words = normalizePhrase(value).split(" ").filter(Boolean);
+    state.setup.words = Array.from({ length: 12 }, (_, i) => words[i] ?? "");
+    wordInputs.forEach((input, i) => { input.value = state.setup.words[i]; });
+    if (words.length !== 12) {
+      state.error = `Paste exactly 12 words. Found ${words.length}.`;
+      render();
+      return;
+    }
+    state.error = null;
+    wordInputs[11]?.focus();
+  };
+  wordInputs.forEach((input) => {
+    input.addEventListener("input", (event) => {
+      const index = Number(event.target.dataset.mnemonicWord);
+      if (index === 0 && /\s/.test(event.target.value.trim())) {
+        fillImportedPhrase(event.target.value);
+        return;
+      }
+      const word = normalizeWord(event.target.value);
+      event.target.value = word;
+      state.setup.words[index] = word;
+    });
+  });
+  wordInputs[0]?.addEventListener("paste", (event) => {
+    const text = event.clipboardData?.getData("text") ?? "";
+    if (!/\s/.test(text.trim())) return;
+    event.preventDefault();
+    fillImportedPhrase(text);
+  });
 
   // Pick a READY L1 note → open SEND pre-loaded with it.
   app.querySelectorAll("[data-send-note]").forEach((el) => el.addEventListener("click", () => {
@@ -236,8 +281,8 @@ function renderLanding() {
       <nav><a class="active teal-underline" href="#">Protocol</a><a class="pink-underline" href="#docs">Docs</a><a class="launch" href="#relay">OPEN VAULT ↗</a></nav>
     </header>
     <main class="landing">
-      <section class="hero"><div class="hero-copy"><span class="sticker teal hero-sticker">★ THE HIGHEST CATEGORY ★</span><h1>BLOW AWAY<br>YOUR <span>TRAIL</span></h1><p>F5 is an independent relayer node. We broadcast your withdrawal and pay the gas — so your fresh wallet stays fresh, and nothing on-chain points back at you.</p><div class="hero-actions"><a class="primary hero-primary" href="#relay">OPEN THE VAULT →</a><a class="secondary" href="#how">HOW IT WORKS</a></div><div class="node-pill"><i class="dot teal-dot"></i> NODE ONLINE</div></div><div class="hero-art"><div class="art-dots"></div><div class="trail-bars"><i class="bar blue-bar"></i><i class="bar teal-bar"></i><i class="bar yellow-bar"></i><i class="bar pink-bar"></i><i class="bar orange-bar"></i><i class="bar blue-bar short"></i><i class="bar teal-bar tiny"></i><b></b></div><span class="figure-label">FIG. 01 — CATEGORY F5</span></div></section>
-      <section id="how" class="how landing-how"><span class="eyebrow teal-text">THE SIMPLE VERSION</span><h2>THREE SPINS & YOU’RE GONE <span class="blue-text">〰</span></h2><div class="steps">${step("1", "ONE PHRASE", "Twelve words derive your note secrets, your shielded address, and your vault. It is the only thing you ever back up.", "MNEMONIC ROOT", "yellow")}${step("2", "SEND BLIND", "You pay a shielded address using only its public keys. You never learn where the recipient cashes out.", "PUBLIC KEYS ONLY", "pink")}${step("3", "SCAN & LAND", "The recipient finds the note by scanning — nobody tells them it exists — and withdraws anywhere.", "UNLINKABLE", "teal")}</div></section>
+      <section class="hero"><div class="hero-copy"><span class="sticker teal hero-sticker">★ THE HIGHEST CATEGORY ★</span><h1>BLOW AWAY<br>YOUR <span>TRAIL</span></h1><p>F5 is an independent relayer node. We broadcast your withdrawal and pay the gas, so your fresh wallet stays fresh and nothing on-chain points back at you.</p><div class="hero-actions"><a class="primary hero-primary" href="#relay">OPEN THE VAULT →</a><a class="secondary" href="#how">HOW IT WORKS</a></div><div class="node-pill"><i class="dot teal-dot"></i> NODE ONLINE</div></div><div class="hero-art"><div class="art-dots"></div><div class="trail-bars"><i class="bar blue-bar"></i><i class="bar teal-bar"></i><i class="bar yellow-bar"></i><i class="bar pink-bar"></i><i class="bar orange-bar"></i><i class="bar blue-bar short"></i><i class="bar teal-bar tiny"></i><b></b></div><span class="figure-label">FIG. 01 / CATEGORY F5</span></div></section>
+      <section id="how" class="how landing-how"><span class="eyebrow teal-text">THE SIMPLE VERSION</span><h2>THREE SPINS & YOU’RE GONE <span class="blue-text">〰</span></h2><div class="steps">${step("1", "ONE PHRASE", "Twelve words derive your note secrets, your shielded address, and your vault. It is the only thing you ever back up.", "MNEMONIC ROOT", "yellow")}${step("2", "SEND BLIND", "You pay a shielded address using only its public keys. You never learn where the recipient cashes out.", "PUBLIC KEYS ONLY", "pink")}${step("3", "SCAN & LAND", "The recipient finds the note by scanning. Nobody tells them it exists, and they can withdraw anywhere.", "UNLINKABLE", "teal")}</div></section>
       <div class="ticker">NO LOGS ★ NO ADMIN KEYS ★ NON-CUSTODIAL ★ GAS PAID BY THE STORM ★ NO LOGS ★ NO ADMIN KEYS ★</div>
     </main>
     ${footer()}
@@ -254,17 +299,24 @@ function renderLanding() {
  * deposit recoverable at all.
  */
 function identityGate() {
+  if (state.setup?.mode === "import") {
+    return `
+      <div class="flow-step active phrase-head import-head"><span class="flow-number">!</span><div><span class="eyebrow">RESTORE YOUR VAULT</span><h3>IMPORT RECOVERY PHRASE</h3><p>Enter each word in order. You can also paste the entire phrase into box 1 and F5 will split it across all twelve boxes.</p></div></div>
+      <div class="mnemonic-input-grid">${state.setup.words.map((word, i) => `
+        <label class="mnemonic-word"><b>${i + 1}</b><input data-mnemonic-word="${i}" value="${escapeHtml(word)}" aria-label="Recovery word ${i + 1}" autocomplete="off" autocapitalize="none" spellcheck="false" /></label>`).join("")}
+      </div>
+      <div class="micro phrase-hint">12-word English BIP-39 phrase ★ word list and checksum checked locally</div>
+      ${setupProtectionFields("confirm-import", "IMPORT MY VAULT →")}
+      <div class="key-actions"><button id="cancel-setup" class="secondary-btn">← BACK</button></div>
+    `;
+  }
+
   if (state.setup) {
     return `
-      <div class="flow-step active"><span class="flow-number">!</span><div><span class="eyebrow">WRITE THIS DOWN</span><h3>YOUR RECOVERY PHRASE</h3><p>These twelve words derive your note secrets, your shielded address, and your vault. They are the only backup that exists. F5 cannot recover them for you.</p></div></div>
+      <div class="flow-step active phrase-head generate-head"><span class="flow-number">!</span><div><span class="eyebrow">WRITE THIS DOWN</span><h3>YOUR RECOVERY PHRASE</h3><p>These twelve words derive your note secrets, your shielded address, and your vault. They are the only backup that exists. F5 cannot recover them for you.</p></div></div>
       <div class="mnemonic-grid">${state.setup.mnemonic.split(" ").map((w, i) => `<span><b>${i + 1}</b>${w}</span>`).join("")}</div>
-      <label class="input-label">PROTECT IT ON THIS DEVICE WITH<select id="setup-kind">
-        <option value="wallet">A wallet signature (one click, needs an EOA)</option>
-        <option value="password">A password (works with no wallet at all)</option>
-      </select></label>
-      <label class="input-label" id="setup-password-row" hidden>PASSWORD<input id="setup-password" type="password" placeholder="at least 8 characters" /></label>
-      <label class="confirm-row"><input type="checkbox" id="setup-confirmed" /> I have written the phrase down somewhere safe.</label>
-      <button id="confirm-setup" class="primary">CREATE MY VAULT →</button>
+      <div class="key-actions phrase-actions"><button id="cancel-setup" class="secondary-btn">← BACK</button><button id="copy-phrase" class="secondary-btn">COPY ALL 12 WORDS</button></div>
+      ${setupProtectionFields("confirm-setup", "CREATE MY VAULT →", "I have written the phrase down somewhere safe.")}
       <div class="micro">the phrase never leaves this browser　★　losing it loses the funds</div>
     `;
   }
@@ -283,11 +335,25 @@ function identityGate() {
   }
 
   return `
-    <div class="flow-step active"><span class="flow-number">01</span><div><span class="eyebrow">FIRST TIME HERE</span><h3>CREATE A SHIELDED VAULT</h3><p>One recovery phrase derives your L1 note secrets, your shielded address <code>(B, V)</code>, and your local vault key. It is independent of your wallet — you can receive on a device with no wallet at all.</p></div></div>
+    <div class="flow-step active"><span class="flow-number">01</span><div><span class="eyebrow">FIRST TIME HERE</span><h3>CREATE A SHIELDED VAULT</h3><p>One recovery phrase derives your L1 note secrets, your shielded address <code>(B, V)</code>, and your local vault key.</p></div></div>
     <button id="create-identity" class="primary">GENERATE RECOVERY PHRASE →</button>
     <div class="key-actions"><button id="import-identity" class="secondary-btn">I ALREADY HAVE A PHRASE</button></div>
-    <div class="micro">nothing is derived from your wallet signature　★　twelve words restore everything</div>
+    <div class="micro">nothing is derived from your wallet signature</div>
   `;
+}
+
+function setupProtectionFields(buttonId, buttonLabel, confirmation) {
+  const kind = state.setup?.kind ?? "wallet";
+  const password = state.setup?.password ?? "";
+  return `
+    <fieldset class="protection-choice">
+      <legend>PROTECT IT ON THIS DEVICE WITH</legend>
+      <label class="protection-option"><input type="radio" name="setup-kind" value="wallet" ${kind === "wallet" ? "checked" : ""} /><span><b>WALLET SIGNATURE</b><small>One click, needs an EOA</small></span></label>
+      <label class="protection-option"><input type="radio" name="setup-kind" value="password" ${kind === "password" ? "checked" : ""} /><span><b>PASSWORD</b><small>Works with no wallet at all</small></span></label>
+    </fieldset>
+    ${kind === "password" ? `<label class="input-label" id="setup-password-row">PASSWORD<input id="setup-password" type="password" placeholder="at least 8 characters" value="${escapeHtml(password)}" /></label>` : ""}
+    ${confirmation ? `<label class="confirm-row"><input type="checkbox" id="setup-confirmed" ${state.setup?.confirmed ? "checked" : ""} /> ${confirmation}</label>` : ""}
+    <button id="${buttonId}" class="primary">${buttonLabel}</button>`;
 }
 
 /*//////////////////////////////////////////////////////////////
@@ -397,7 +463,7 @@ const PILL = {
   spent: ["SPENT →", "past"],
 };
 function pill(status) {
-  const [label, cls] = PILL[status] ?? ["—", "warn"];
+  const [label, cls] = PILL[status] ?? ["?", "warn"];
   return `<span class="pill ${cls}">${label}</span>`;
 }
 
@@ -422,7 +488,7 @@ function homeView() {
         <button class="secondary-btn" data-view="send">SEND</button>
         <button class="secondary-btn" data-view="receive">RECEIVE</button>
       </div>
-      <p class="micro">your notes live on the right — pick one to spend it　★　nothing here is custodial</p>
+      <p class="micro">your notes live on the right ★ pick one to spend it ★ nothing here is custodial</p>
     </section>`;
 }
 
@@ -473,7 +539,7 @@ function sendView() {
       <div class="notice ${draft?.relayed ? "teal-card" : "pink-card"}">
         <strong>${draft?.relayed ? "DELIVERED" : draft?.proof ? "PROOF READY" : "PUBLIC KEYS ONLY"}</strong>
         <span>${draft?.relayed
-          ? "The note is bridging. The recipient finds it by scanning — you send them nothing, and you can close this tab."
+          ? "The note is bridging. The recipient finds it by scanning. You send them nothing, and you can close this tab."
           : draft?.proof
             ? `C_dest ${short(draft.destNote.cDest.toString())} · bridging ${formatEther(draft.bridgedValue)} ETH after the relay fee.`
             : "You never hold the recipient's private keys, and you don't choose where they cash out. Only they can."}</span>
@@ -500,7 +566,7 @@ function receiveView() {
   return `
     <section class="panel flow-panel">
       ${flowHead("L2 · DESTINATION", "RECEIVE & WITHDRAW", "Scan the destination feed for notes addressed to you, then land one to any address.")}
-      <div class="notice pink-card"><strong>${r.scannedCount ? `SCANNED ${r.scannedCount} NOTE${r.scannedCount === 1 ? "" : "S"}` : "NOT SCANNED YET"}</strong><span>${r.scanned.length ? `${r.scanned.length} addressed to you — pick one from the Vault.` : "Everything is fetched and matched in this browser; the relayer never learns which note is yours."}</span></div>
+      <div class="notice pink-card"><strong>${r.scannedCount ? `SCANNED ${r.scannedCount} NOTE${r.scannedCount === 1 ? "" : "S"}` : "NOT SCANNED YET"}</strong><span>${r.scanned.length ? `${r.scanned.length} addressed to you. Pick one from the Vault.` : "Everything is fetched and matched in this browser; the relayer never learns which note is yours."}</span></div>
       <div class="key-actions"><button data-scan class="secondary-btn">SCAN NOW</button></div>
       ${note ? `
         <div class="flow-step active"><span class="flow-number">▸</span><div><span class="eyebrow">SELECTED</span><h3>${formatEther(note.value)} ETH · ${chainLabel(note.chain)}</h3><p>${statusLabel(st)}</p></div></div>
@@ -540,14 +606,14 @@ function starknetOption() {
   const sn = state.starknet;
   const usable = sn?.configured === true;
   const selected = state.send.destinationChainId === STARKNET_CHAIN_ID && usable;
-  return `<option value="${STARKNET_CHAIN_ID}" ${usable ? "" : "disabled"} ${selected ? "selected" : ""}>Starknet Sepolia${usable ? "" : " — unavailable"}</option>`;
+  return `<option value="${STARKNET_CHAIN_ID}" ${usable ? "" : "disabled"} ${selected ? "selected" : ""}>Starknet Sepolia${usable ? "" : " (unavailable)"}</option>`;
 }
 
 function starknetWarning() {
   const sn = state.starknet;
   if (!sn || sn.configured) return "";
   const reason = sn.l1PoolMatches === false
-    ? `The Starknet pool only accepts notes from L1 pool <b>${escapeHtml(sn.boundL1Pool ?? "?")}</b>, but this app relays from <b>${escapeHtml(sn.ourL1Pool ?? "?")}</b>. Bridging anyway would deliver the ETH and then reject the note — the value would arrive with nothing able to claim it. Its <code>l1_pool</code> is immutable, so the Cairo pool must be redeployed against this L1 pool.`
+    ? `The Starknet pool only accepts notes from L1 pool <b>${escapeHtml(sn.boundL1Pool ?? "?")}</b>, but this app relays from <b>${escapeHtml(sn.ourL1Pool ?? "?")}</b>. Bridging anyway would deliver the ETH and then reject the note. The value would arrive with nothing able to claim it. Its <code>l1_pool</code> is immutable, so the Cairo pool must be redeployed against this L1 pool.`
     : sn.relayerReady === false
       ? "The Starknet relayer keys are not configured on this server."
       : "The Starknet destination is unreachable.";
@@ -629,6 +695,23 @@ function captureForm() {
   set(state.send, "recipientKey", read("#send-recipient"));
   set(state.receive, "recipient", read("#recv-recipient"));
   set(state, "unlockPassword", read("#unlock-password-input"));
+  if (state.setup) {
+    set(state.setup, "kind", app.querySelector('input[name="setup-kind"]:checked')?.value);
+    set(state.setup, "password", read("#setup-password"));
+    const confirmed = app.querySelector("#setup-confirmed");
+    if (confirmed) state.setup.confirmed = confirmed.checked;
+    app.querySelectorAll("[data-mnemonic-word]").forEach((input) => {
+      state.setup.words[Number(input.dataset.mnemonicWord)] = normalizeWord(input.value);
+    });
+  }
+}
+
+function normalizePhrase(value) {
+  return String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeWord(value) {
+  return String(value ?? "").trim().toLowerCase().replace(/[^a-z]/g, "");
 }
 
 /**
@@ -738,35 +821,63 @@ async function signIdentityMessage() {
                         IDENTITY ACTIONS
 //////////////////////////////////////////////////////////////*/
 
-async function startIdentitySetup() {
-  state.setup = { mnemonic: createMnemonic() };
-  // Reveal the "password" row only when that unwrap method is chosen.
-  queueMicrotask(() => {
-    const kind = app.querySelector("#setup-kind");
-    const row = app.querySelector("#setup-password-row");
-    kind?.addEventListener("change", () => { if (row) row.hidden = kind.value !== "password"; });
-  });
+function startIdentitySetup() {
+  state.setup = { mode: "generate", mnemonic: createMnemonic(), kind: "wallet", password: "", confirmed: false };
+  state.error = null;
+  render();
 }
 
-async function importIdentity() {
-  const phrase = window.prompt("Paste your 12-word recovery phrase:");
-  if (!phrase) return;
-  const mnemonic = phrase.trim().replace(/\s+/g, " ").toLowerCase();
-  if (mnemonic.split(" ").length !== 12) throw new Error("A recovery phrase is 12 words.");
-  await adoptMnemonic(mnemonic); // validates by deriving
-  state.setup = { mnemonic, imported: true };
+function startIdentityImport() {
+  state.setup = { mode: "import", words: Array(12).fill(""), kind: "wallet", password: "", confirmed: false };
   state.identity = null;
+  state.error = null;
+  render();
+}
+
+async function copySetupMnemonic() {
+  const mnemonic = state.setup?.mnemonic;
+  if (!mnemonic) throw new Error("Generate a recovery phrase first.");
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(mnemonic);
+  } else {
+    const textarea = document.createElement("textarea");
+    textarea.value = mnemonic;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand("copy");
+    textarea.remove();
+    if (!copied) throw new Error("Could not copy the recovery phrase. Select the words and copy them manually.");
+  }
+  state.notice = "Recovery phrase copied. Store it somewhere safe and clear it from your clipboard when finished.";
 }
 
 async function confirmIdentitySetup() {
-  if (!app.querySelector("#setup-confirmed")?.checked) {
-    throw new Error("Confirm you have written the recovery phrase down first.");
+  await completeIdentitySetup(
+    state.setup.mnemonic,
+    "Vault created. Your phrase is the only backup. F5 cannot recover it.",
+    "Confirm you have written the recovery phrase down first.",
+  );
+}
+
+async function confirmImportedIdentity() {
+  const mnemonic = validateRecoveryPhrase(state.setup.words.join(" "));
+  await completeIdentitySetup(
+    mnemonic,
+    "Vault imported. Your phrase is now protected on this device.",
+  );
+}
+
+async function completeIdentitySetup(mnemonic, notice, confirmationError) {
+  if (confirmationError && !state.setup.confirmed) {
+    throw new Error(confirmationError);
   }
-  const kind = app.querySelector("#setup-kind")?.value ?? "wallet";
-  const mnemonic = state.setup.mnemonic;
+  const kind = state.setup.kind ?? "wallet";
 
   if (kind === "password") {
-    const password = app.querySelector("#setup-password")?.value ?? "";
+    const password = state.setup.password ?? "";
     if (password.length < 8) throw new Error("Use a password of at least 8 characters.");
     await saveMnemonic(mnemonic, { kind: "password", password });
   } else {
@@ -775,7 +886,7 @@ async function confirmIdentitySetup() {
 
   await adoptMnemonic(mnemonic);
   state.setup = null;
-  state.notice = "Vault created. Your phrase is the only backup — F5 cannot recover it.";
+  state.notice = notice;
   await afterUnlock();
 }
 
@@ -800,9 +911,14 @@ async function adoptMnemonic(mnemonic) {
 }
 
 async function afterUnlock() {
+  // The caches are scoped to a pool, so the config must be loaded before they can be read — an
+  // unlock that raced the config would otherwise look like "no notes".
+  if (!state.config) await loadConfig();
+  const scope = state.config?.scope;
+
   // Normalise cached notes so a note written before `status` existed reads as ready.
-  state.notes = (await loadNotes(state.identity.vaultKey)).map((n) => ({ status: "ready", ...n }));
-  state.withdrawn = await loadL2History(state.identity.vaultKey);
+  state.notes = (await loadNotes(state.identity.vaultKey, scope)).map((n) => ({ status: "ready", ...n }));
+  state.withdrawn = await loadL2History(state.identity.vaultKey, scope);
 
   // Notes written before the mnemonic existed used pure local entropy, so they
   // are NOT re-derivable — migrate them into the vault or they are stranded.
@@ -816,7 +932,7 @@ async function afterUnlock() {
       const fresh = legacy.filter((n) => !state.notes.some((k) => k.commitment === n.commitment));
       if (fresh.length) {
         state.notes = [...state.notes, ...fresh.map((n) => ({ status: "ready", ...n }))];
-        await saveNotes(state.identity.vaultKey, state.notes);
+        await saveNotes(state.identity.vaultKey, state.config.scope, state.notes);
         state.notice = `Migrated ${fresh.length} legacy note${fresh.length === 1 ? "" : "s"} into the new vault.`;
       }
     } catch { /* Legacy migration is best-effort; never block the unlock. */ }
@@ -887,7 +1003,7 @@ async function resolveRecipient() {
 
   const parts = input.split(",").map((p) => p.trim());
   if (parts.length !== 4 || !parts.every((p) => /^\d+$/.test(p))) {
-    throw new Error("Paste four comma-separated field elements: Bx,By,Vx,Vy — or an 0x address to resolve.");
+    throw new Error("Paste four comma-separated field elements (Bx,By,Vx,Vy) or an 0x address to resolve.");
   }
   state.send.resolved = { B: [BigInt(parts[0]), BigInt(parts[1])], V: [BigInt(parts[2]), BigInt(parts[3])] };
 }
@@ -927,7 +1043,7 @@ async function recoverL1Notes() {
   // Keep legacy (non-derivable) notes; they can never be recovered this way.
   const legacy = state.notes.filter((n) => n.legacy);
   state.notes = [...recovered, ...legacy];
-  await saveNotes(state.identity.vaultKey, state.notes);
+  await saveNotes(state.identity.vaultKey, state.config.scope, state.notes);
   state.notice = `Recovered ${recovered.length} note${recovered.length === 1 ? "" : "s"} from ${deposits.length} pool deposits.`;
 }
 
@@ -1038,7 +1154,7 @@ async function loadConfig() {
     render();
   } catch (error) {
     // The API server is probably still booting; say so rather than blaming the user's config.
-    state.error = `${error instanceof Error ? error.message : "Configuration unavailable"} — retrying…`;
+    state.error = `${error instanceof Error ? error.message : "Configuration unavailable"}. Retrying…`;
     const delay = Math.min(500 * 2 ** configAttempts++, 5000);
     configRetry = setTimeout(() => { configRetry = null; loadConfig(); }, delay);
     render();
@@ -1127,7 +1243,7 @@ async function runDeposit() {
     secret: secret.toString(),
     status: "ready",
   }];
-  await saveNotes(state.identity.vaultKey, state.notes);
+  await saveNotes(state.identity.vaultKey, state.config.scope, state.notes);
   state.notice = `Deposited ${formatEther(BigInt(event.value))} ${config.symbol} at index ${index}. Recoverable from your phrase.`;
   state.view = "home";
 }
@@ -1165,7 +1281,7 @@ async function runSend() {
     // rather than deleting it, so the portfolio can show what left.
     const spent = state.notes.find((n) => n.commitment === draft.selected.commitment);
     if (spent) { spent.status = "spent"; spent.spentTo = String(send.destinationChainId); }
-    await saveNotes(state.identity.vaultKey, state.notes);
+    await saveNotes(state.identity.vaultKey, state.config.scope, state.notes);
     return;
   }
 
@@ -1273,7 +1389,7 @@ async function runReceive() {
     const id = String(note.cDest);
     state.withdrawn[id] = { value: note.value.toString(), chain: note.chain, recipient: (r.recipient ?? "").trim(), hash: result.hash ?? null, at: Date.now() };
     note._status = "withdrawn";
-    await saveL2History(state.identity.vaultKey, state.withdrawn);
+    await saveL2History(state.identity.vaultKey, state.config.scope, state.withdrawn);
     return;
   }
 
@@ -1305,7 +1421,7 @@ async function prepareL2Proof(note) {
   const recipient = (r.recipient ?? "").trim();
 
   const index = r.index?.[note.chain];
-  if (!index) throw new Error("Scan again — the note's index is stale.");
+  if (!index) throw new Error("Scan again. The note's index is stale.");
   const entry = index.proofs?.find((item) => String(item.commitment) === String(note.cDest));
   if (!entry?.proof) throw new Error("The activated note is not indexed in the destination tree yet.");
 

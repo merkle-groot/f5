@@ -41,6 +41,20 @@ function padSiblings(siblings: readonly bigint[], depth = MAX_TREE_DEPTH): bigin
 }
 
 /**
+ * A Merkle proof's leaf index, normalised to a bigint.
+ *
+ * LeanIMT derives the index by folding over the sibling path, so a SINGLE-LEAF tree (depth 0, no
+ * siblings) yields `index: null` rather than 0 — and `BigInt(null)` throws "Cannot convert null to
+ * a BigInt". That is not an edge case to shrug at: it is the state of every freshly deployed pool
+ * on its first withdrawal, so proving is broken exactly when a pool is new and works thereafter.
+ *
+ * The e2e references all spell this `BigInt(p.index || 0)`; mirror them.
+ */
+function proofIndex(index: number | null | undefined): bigint {
+  return BigInt(index ?? 0);
+}
+
+/**
  * Service responsible for handling Mode-3 withdrawal proof generation.
  *
  * A Cutout withdrawal has two proven legs (CLAUDE.md §5–6):
@@ -233,9 +247,9 @@ export class WithdrawalService {
       // Merkle proofs — zero-padded to the circuit's fixed array length; the *TreeDepth signals
       // above tell the circuit how many entries are real.
       stateSiblings: padSiblings(input.stateMerkleProof.siblings),
-      stateIndex: BigInt(input.stateMerkleProof.index),
+      stateIndex: proofIndex(input.stateMerkleProof.index),
       ASPSiblings: padSiblings(input.aspMerkleProof.siblings),
-      ASPIndex: BigInt(input.aspMerkleProof.index),
+      ASPIndex: proofIndex(input.aspMerkleProof.index),
     };
   }
 
@@ -258,7 +272,7 @@ export class WithdrawalService {
 
       // Merkle proof — zero-padded to the circuit's fixed array length (see padSiblings).
       stateSiblings: padSiblings(input.stateMerkleProof.siblings),
-      stateIndex: BigInt(input.stateMerkleProof.index),
+      stateIndex: proofIndex(input.stateMerkleProof.index),
     };
   }
 }

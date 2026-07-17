@@ -1,5 +1,11 @@
 # Cutout / F5 — Deployment & Run Runbook
 
+> **For the happy path, use [`DEPLOYMENT.md`](./DEPLOYMENT.md).** It is the clean, current
+> deployment guide and its addresses are the ones verified on-chain. This runbook is kept as a
+> troubleshooting appendix (indexing/caching internals, the verifier-consistency incident, signer
+> resolution) and contains older, superseded address sets — where the two disagree, trust the
+> deploy records and `ops/check-deployment.sh`, not the prose here.
+
 How the whole system is deployed and run end-to-end (L1 pool → OP/Base/Starknet
 destinations → relayer + ASP → the Vault app), plus the **current deployed
 addresses** and the **consistency issues that block cross-chain today**.
@@ -111,11 +117,12 @@ Source: `packages/starknet-pool/deployments/starknet-0x534e5f5345504f4c4941.json
 The class hashes were already declared from the earlier deploy, so this was a fresh **instance**
 against the existing classes (no re-declare — Starknet rejects that, and it is not an error).
 
-**Retired sets** (do not reuse — bound to L1 pools that are no longer canonical):
-`deployments/starknet-bridge-sepolia.json` (Cairo pool `0x07b336…` → L1 `0x2e302A…`, entrypoint
-`0xfA1B3a…`); `packages/starknet-pool/deployments/starknet-sepolia.json` (pool `0x01ff6476…` →
-`l1_pool: 0xdeadbeef`, a literal placeholder); OP pool `0xfbba1f…` → L1 `0x8D508e…`. These are why
-the state fragmented; they are kept only as history.
+**Retired sets** (do not reuse — bound to L1 pools that are no longer canonical). The two stale
+JSON records — `deployments/starknet-bridge-sepolia.json` (Cairo pool `0x07b336…` → L1 `0x2e302A…`,
+entrypoint `0xfA1B3a…`) and `packages/starknet-pool/deployments/starknet-sepolia.json` (pool
+`0x01ff6476…` → `l1_pool: 0xdeadbeef`, a literal placeholder) — were **removed on 2026-07-17**;
+their addresses are preserved here as history only. The superseded OP pool `0xfbba1f…` → L1
+`0x8D508e…` never had its own record file. These are why the state fragmented.
 
 > **Reusable regardless of L1:** Starknet Core `0xE2Bb56…`, StarkGate ETH bridge
 > `0x8453FC…`, and the OP Stack addresses (§4) — these are network infrastructure,
