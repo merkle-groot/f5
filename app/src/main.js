@@ -609,9 +609,6 @@ function metroMap(destinations, l1Total, l1NoteCount) {
     `<path class="metro-route route-${color}" d="${path}" />`).join("");
   const destinationCards = destinationLayout.map(({ destination, y, color }) => `
     <g class="metro-destination ${destination.stateClass}">
-      <rect class="metro-card-shadow" x="693" y="${y - 48}" width="343" height="104" />
-      <rect class="metro-card" x="686" y="${y - 55}" width="343" height="104" />
-      <rect class="metro-card-accent route-${color}" x="686" y="${y - 55}" width="343" height="10" />
       <circle class="metro-station" cx="686" cy="${y}" r="20" />
       <circle class="metro-badge route-${color}" cx="733" cy="${y}" r="23" />
       <text class="metro-badge-text" x="733" y="${y + 1}">${escapeHtml(destination.initials)}</text>
@@ -625,9 +622,6 @@ function metroMap(destinations, l1Total, l1NoteCount) {
       <line class="metro-route route-teal" x1="277" y1="${centerY}" x2="402" y2="${centerY}" />
       ${routes}
       <g class="metro-source-card">
-        <rect class="metro-card-shadow" x="31" y="${centerY - 51}" width="253" height="116" />
-        <rect class="metro-card" x="24" y="${centerY - 58}" width="253" height="116" />
-        <rect class="metro-card-accent route-teal" x="24" y="${centerY - 58}" width="253" height="10" />
         <circle class="metro-badge route-teal" cx="69" cy="${centerY}" r="24" />
         <text class="metro-badge-text" x="69" y="${centerY + 1}">Ξ</text>
         <text class="metro-chain-total" x="108" y="${centerY - 25}">${fmt(l1Total)} ETH TOTAL</text>

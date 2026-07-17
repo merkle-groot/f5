@@ -173,9 +173,6 @@
 .route-pink{--route-color:var(--pink)}
 .route-yellow{--route-color:var(--yellow)}
 .metro-route{fill:none;stroke:var(--route-color);stroke-width:14;stroke-linecap:round}
-.metro-card-shadow{fill:var(--ink)}
-.metro-card{fill:var(--paper);stroke:var(--ink);stroke-width:5}
-.metro-card-accent{fill:var(--route-color)}
 .metro-station{fill:var(--paper);stroke:var(--ink);stroke-width:8}
 .metro-badge{fill:var(--route-color);stroke:var(--ink);stroke-width:7}
 .metro-badge-text,.metro-chain-name,.metro-chain-total,.metro-chain-detail,.metro-source-total,.metro-source-name,.metro-source-detail,.metro-interchange-label,.metro-empty{fill:var(--ink);font-family:'DM Mono',monospace}
