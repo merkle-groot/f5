@@ -611,7 +611,7 @@ function metroMap(destinations, l1Total, l1NoteCount) {
     <g class="metro-destination ${destination.stateClass}">
       <circle class="metro-badge route-${color}" cx="733" cy="${y}" r="23" />
       <text class="metro-badge-text" x="733" y="${y + 1}">${escapeHtml(destination.initials)}</text>
-      <text class="metro-chain-total" x="770" y="${y - 25}">${fmt(destination.total)} ETH TOTAL</text>
+      <text class="metro-chain-total" x="770" y="${y - 25}"><tspan>${fmt(destination.total)}</tspan><tspan class="metro-currency" dx="7">ETH</tspan></text>
       <text class="metro-chain-name" x="770" y="${y + 3}">${escapeHtml(destination.label)}</text>
       <text class="metro-chain-detail" x="770" y="${y + 28}">${fmt(destination.available)} AVAIL · ${fmt(destination.pending)} PENDING · ${destination.noteCount} NOTE${destination.noteCount === 1 ? "" : "S"}</text>
     </g>`).join("");
@@ -623,7 +623,7 @@ function metroMap(destinations, l1Total, l1NoteCount) {
       <g class="metro-source-card">
         <circle class="metro-badge route-teal" cx="69" cy="${centerY}" r="24" />
         <text class="metro-badge-text" x="69" y="${centerY + 1}">Ξ</text>
-        <text class="metro-chain-total" x="108" y="${centerY - 25}">${fmt(l1Total)} ETH TOTAL</text>
+        <text class="metro-chain-total" x="108" y="${centerY - 25}"><tspan>${fmt(l1Total)}</tspan><tspan class="metro-currency" dx="7">ETH</tspan></text>
         <text class="metro-chain-name" x="108" y="${centerY + 4}">ETHEREUM</text>
         <text class="metro-chain-detail" x="108" y="${centerY + 30}">${l1NoteCount} READY NOTE${l1NoteCount === 1 ? "" : "S"}</text>
         <circle class="metro-station" cx="277" cy="${centerY}" r="20" />

@@ -178,9 +178,9 @@
 .metro-badge-text,.metro-chain-name,.metro-chain-total,.metro-chain-detail,.metro-source-total,.metro-source-name,.metro-source-detail,.metro-interchange-label,.metro-empty{fill:var(--ink);font-family:'DM Mono',monospace}
 .metro-badge-text{font-size:14px;font-weight:800;text-anchor:middle;dominant-baseline:middle}
 .metro-chain-total,.metro-source-total{font-size:21px;font-weight:800}
+.metro-currency{font-size:12px}
 .metro-chain-name,.metro-source-name{font-size:19px;font-weight:900}
 .metro-chain-detail,.metro-source-detail{fill:#666;font-size:11px;font-weight:700}
-.metro-source-card .metro-chain-total{font-size:16px}
 .metro-source-card .metro-chain-name{font-size:17px}
 .metro-source-card .metro-chain-detail{font-size:10px}
 .metro-interchange-label{font-size:18px;font-weight:900;text-anchor:middle}
