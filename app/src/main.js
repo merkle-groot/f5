@@ -475,21 +475,71 @@ function flowHead(eyebrow, title, sub) {
   return `<div class="flow-head"><div><span class="eyebrow">${eyebrow}</span><h2>${title}</h2><p>${sub}</p></div><button class="ghost" data-view="home">← HOME</button></div>`;
 }
 
-/** Default left pane: a quiet overview that points at the dock. */
+/** Default left pane: a chain map showing where the user's current notes live. */
 function homeView() {
   const b = balances();
+  const l1Notes = state.notes.filter((note) => note.status !== "spent");
+  const l1Total = l1Notes.reduce((sum, note) => sum + BigInt(note.value), 0n);
+  const destinations = evmChains().map((chain) => noteMapDestination(chain.key, chain.chainName));
+  if (state.starknet?.configured || l2List("starknet").length) {
+    destinations.push(noteMapDestination("starknet", "Starknet"));
+  }
+  const totalShielded = b.spendable + b.pending;
   return `
     <section class="panel home-panel">
-      <span class="eyebrow">SHIELDED VALUE</span>
-      <div class="big-balance">${fmt(b.spendable)} <small>ETH</small></div>
-      <p class="home-lead">spendable now　·　${fmt(b.pending)} pending　·　${fmt(b.withdrawn)} withdrawn</p>
+      <div class="map-heading">
+        <div><span class="eyebrow">WHERE YOUR NOTES LIVE</span><h2>NOTE MAP</h2></div>
+        <div class="map-total"><span>TOTAL SHIELDED</span><strong>${fmt(totalShielded)} <small>ETH</small></strong></div>
+      </div>
+      <div class="note-map">
+        <article class="map-chain map-source ${l1Total > 0n ? "has-value" : "is-empty"}">
+          <div class="map-chain-total">${fmt(l1Total)} <small>ETH</small></div>
+          <div class="map-chain-card">
+            <span class="map-chain-icon">Ξ</span>
+            <div><b>ETHEREUM</b><small>${l1Notes.length} ready note${l1Notes.length === 1 ? "" : "s"}</small></div>
+          </div>
+        </article>
+        <div class="map-relay" aria-label="F5 Vault routing point">
+          <span class="map-relay-eye"><img src="/f5-eye.svg" alt="" aria-hidden="true" /></span>
+          <b>F5 VAULT</b>
+        </div>
+        <div class="map-destinations">
+          ${destinations.length ? destinations.join("") : `<div class="map-empty">No L2 destinations configured.</div>`}
+        </div>
+      </div>
+      <div class="map-legend">
+        <span><i class="legend-dot available"></i> AVAILABLE</span>
+        <span><i class="legend-dot pending"></i> PENDING ACTIVATION</span>
+        <span><i class="legend-dot empty"></i> NO NOTES</span>
+      </div>
       <div class="home-actions">
         <button class="primary" data-view="deposit">DEPOSIT →</button>
         <button class="secondary-btn" data-view="send">SEND</button>
         <button class="secondary-btn" data-view="receive">RECEIVE</button>
       </div>
-      <p class="micro">your notes live on the right ★ pick one to spend it ★ nothing here is custodial</p>
+      <p class="micro">current shielded notes only ★ spent and withdrawn history is not counted</p>
     </section>`;
+}
+
+function noteMapDestination(key, label) {
+  const notes = l2List(key).filter((note) => note.status !== "withdrawn");
+  let available = 0n;
+  let pending = 0n;
+  for (const note of notes) {
+    if (note.status === "spendable") available += BigInt(note.value);
+    else if (note.status === "activate" || note.status === "pending") pending += BigInt(note.value);
+  }
+  const total = available + pending;
+  const stateClass = available > 0n ? "has-value" : pending > 0n ? "has-pending" : "is-empty";
+  const initials = key === "starknet" ? "SN" : label.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+  return `
+    <article class="map-chain map-destination ${stateClass}">
+      <div class="map-chain-total">${fmt(total)} <small>ETH</small></div>
+      <div class="map-chain-card">
+        <span class="map-chain-icon">${escapeHtml(initials)}</span>
+        <div><b>${escapeHtml(label)}</b><small>${fmt(available)} available · ${fmt(pending)} pending · ${notes.length} note${notes.length === 1 ? "" : "s"}</small></div>
+      </div>
+    </article>`;
 }
 
 function depositView() {
