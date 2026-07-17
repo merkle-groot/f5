@@ -599,33 +599,46 @@ function metroMap(destinations, l1Total, l1NoteCount) {
   const centerY = height / 2;
   const topY = count === 1 ? centerY : 72;
   const step = count === 1 ? 0 : (height - 144) / (count - 1);
-  const routes = destinations.map((destination, index) => {
+  const destinationLayout = destinations.map((destination, index) => {
     const y = topY + index * step;
     const color = routeColors[index % routeColors.length];
-    const path = `M 462 ${centerY} C 535 ${centerY}, 545 ${y}, 650 ${y}`;
-    return `
-      <g class="metro-destination ${destination.stateClass}">
-        <path class="metro-route route-${color}" d="${path}" />
-        <circle class="metro-station" cx="650" cy="${y}" r="20" />
-        <circle class="metro-badge route-${color}" cx="708" cy="${y}" r="24" />
-        <text class="metro-badge-text" x="708" y="${y + 1}">${escapeHtml(destination.initials)}</text>
-        <text class="metro-chain-total" x="748" y="${y - 28}">${fmt(destination.total)} ETH TOTAL</text>
-        <text class="metro-chain-name" x="748" y="${y + 3}">${escapeHtml(destination.label)}</text>
-        <text class="metro-chain-detail" x="748" y="${y + 28}">${fmt(destination.available)} AVAIL · ${fmt(destination.pending)} PENDING · ${destination.noteCount} NOTE${destination.noteCount === 1 ? "" : "S"}</text>
-      </g>`;
-  }).join("");
+    const path = `M 462 ${centerY} C 535 ${centerY}, 560 ${y}, 686 ${y}`;
+    return { destination, y, color, path };
+  });
+  const routes = destinationLayout.map(({ color, path }) =>
+    `<path class="metro-route route-${color}" d="${path}" />`).join("");
+  const destinationCards = destinationLayout.map(({ destination, y, color }) => `
+    <g class="metro-destination ${destination.stateClass}">
+      <rect class="metro-card-shadow" x="693" y="${y - 48}" width="343" height="104" />
+      <rect class="metro-card" x="686" y="${y - 55}" width="343" height="104" />
+      <rect class="metro-card-accent route-${color}" x="686" y="${y - 55}" width="343" height="10" />
+      <circle class="metro-station" cx="686" cy="${y}" r="20" />
+      <circle class="metro-badge route-${color}" cx="733" cy="${y}" r="23" />
+      <text class="metro-badge-text" x="733" y="${y + 1}">${escapeHtml(destination.initials)}</text>
+      <text class="metro-chain-total" x="770" y="${y - 25}">${fmt(destination.total)} ETH TOTAL</text>
+      <text class="metro-chain-name" x="770" y="${y + 3}">${escapeHtml(destination.label)}</text>
+      <text class="metro-chain-detail" x="770" y="${y + 28}">${fmt(destination.available)} AVAIL · ${fmt(destination.pending)} PENDING · ${destination.noteCount} NOTE${destination.noteCount === 1 ? "" : "S"}</text>
+    </g>`).join("");
 
   return `<div class="note-map metro-map">
     <svg viewBox="0 0 1060 ${height}" role="img" aria-label="Shielded note transit map from Ethereum through F5 to configured L2 chains">
-      <line class="metro-route route-teal" x1="110" y1="${centerY}" x2="410" y2="${centerY}" />
-      <circle class="metro-station" cx="110" cy="${centerY}" r="20" />
-      <text class="metro-source-total" x="62" y="${centerY - 78}">${fmt(l1Total)} ETH</text>
-      <text class="metro-source-name" x="62" y="${centerY + 67}">ETHEREUM</text>
-      <text class="metro-source-detail" x="62" y="${centerY + 92}">${l1NoteCount} READY NOTE${l1NoteCount === 1 ? "" : "S"}</text>
+      <line class="metro-route route-teal" x1="277" y1="${centerY}" x2="402" y2="${centerY}" />
       ${routes}
+      <g class="metro-source-card">
+        <rect class="metro-card-shadow" x="31" y="${centerY - 51}" width="253" height="116" />
+        <rect class="metro-card" x="24" y="${centerY - 58}" width="253" height="116" />
+        <rect class="metro-card-accent route-teal" x="24" y="${centerY - 58}" width="253" height="10" />
+        <circle class="metro-badge route-teal" cx="69" cy="${centerY}" r="24" />
+        <text class="metro-badge-text" x="69" y="${centerY + 1}">Ξ</text>
+        <text class="metro-chain-total" x="108" y="${centerY - 25}">${fmt(l1Total)} ETH TOTAL</text>
+        <text class="metro-chain-name" x="108" y="${centerY + 4}">ETHEREUM</text>
+        <text class="metro-chain-detail" x="108" y="${centerY + 30}">${l1NoteCount} READY NOTE${l1NoteCount === 1 ? "" : "S"}</text>
+        <circle class="metro-station" cx="277" cy="${centerY}" r="20" />
+      </g>
+      ${destinationCards}
       <image class="metro-interchange" href="/f5-eye.svg" x="399" y="${centerY - 32}" width="64" height="64" />
       <text class="metro-interchange-label" x="431" y="${centerY + 91}">F5</text>
-      ${destinations.length ? "" : `<text class="metro-empty" x="650" y="${centerY}">NO L2 DESTINATIONS CONFIGURED</text>`}
+      ${destinations.length ? "" : `<text class="metro-empty" x="686" y="${centerY}">NO L2 DESTINATIONS CONFIGURED</text>`}
     </svg>
   </div>`;
 }
