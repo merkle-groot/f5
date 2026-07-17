@@ -560,25 +560,10 @@ function homeView() {
   return `
     <section class="panel home-panel">
       <div class="map-heading">
-        <div><span class="eyebrow">WHERE YOUR NOTES LIVE</span><h2>NOTE MAP</h2></div>
+        <div><span class="eyebrow">WHERE YOUR NOTES LIVE</span><h2>TRANSIT MAP</h2><p>Chains are stations. F5 is the interchange.</p></div>
         <div class="map-total"><span>TOTAL SHIELDED</span><strong>${fmt(totalShielded)} <small>ETH</small></strong></div>
       </div>
-      <div class="note-map">
-        <article class="map-chain map-source ${l1Total > 0n ? "has-value" : "is-empty"}">
-          <div class="map-chain-total">${fmt(l1Total)} <small>ETH</small></div>
-          <div class="map-chain-card">
-            <span class="map-chain-icon">Ξ</span>
-            <div><b>ETHEREUM</b><small>${l1Notes.length} ready note${l1Notes.length === 1 ? "" : "s"}</small></div>
-          </div>
-        </article>
-        <div class="map-relay" aria-label="F5 Vault routing point">
-          <span class="map-relay-eye"><img src="/f5-eye.svg" alt="" aria-hidden="true" /></span>
-          <b>F5 VAULT</b>
-        </div>
-        <div class="map-destinations">
-          ${destinations.length ? destinations.join("") : `<div class="map-empty">No L2 destinations configured.</div>`}
-        </div>
-      </div>
+      ${metroMap(destinations, l1Total, l1Notes.length)}
       <div class="map-legend">
         <span><i class="legend-dot available"></i> AVAILABLE</span>
         <span><i class="legend-dot pending"></i> PENDING ACTIVATION</span>
@@ -604,14 +589,45 @@ function noteMapDestination(key, label) {
   const total = available + pending;
   const stateClass = available > 0n ? "has-value" : pending > 0n ? "has-pending" : "is-empty";
   const initials = key === "starknet" ? "SN" : label.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
-  return `
-    <article class="map-chain map-destination ${stateClass}">
-      <div class="map-chain-total">${fmt(total)} <small>ETH</small></div>
-      <div class="map-chain-card">
-        <span class="map-chain-icon">${escapeHtml(initials)}</span>
-        <div><b>${escapeHtml(label)}</b><small>${fmt(available)} available · ${fmt(pending)} pending · ${notes.length} note${notes.length === 1 ? "" : "s"}</small></div>
-      </div>
-    </article>`;
+  return { label, initials, total, available, pending, noteCount: notes.length, stateClass };
+}
+
+function metroMap(destinations, l1Total, l1NoteCount) {
+  const routeColors = ["blue", "pink", "yellow", "teal"];
+  const count = Math.max(destinations.length, 1);
+  const height = Math.max(460, 120 + count * 118);
+  const centerY = height / 2;
+  const topY = count === 1 ? centerY : 72;
+  const step = count === 1 ? 0 : (height - 144) / (count - 1);
+  const routes = destinations.map((destination, index) => {
+    const y = topY + index * step;
+    const color = routeColors[index % routeColors.length];
+    const path = `M 462 ${centerY} C 535 ${centerY}, 545 ${y}, 650 ${y}`;
+    return `
+      <g class="metro-destination ${destination.stateClass}">
+        <path class="metro-route route-${color}" d="${path}" />
+        <circle class="metro-station" cx="650" cy="${y}" r="20" />
+        <circle class="metro-badge route-${color}" cx="708" cy="${y}" r="24" />
+        <text class="metro-badge-text" x="708" y="${y + 1}">${escapeHtml(destination.initials)}</text>
+        <text class="metro-chain-total" x="748" y="${y - 28}">${fmt(destination.total)} ETH TOTAL</text>
+        <text class="metro-chain-name" x="748" y="${y + 3}">${escapeHtml(destination.label)}</text>
+        <text class="metro-chain-detail" x="748" y="${y + 28}">${fmt(destination.available)} AVAIL · ${fmt(destination.pending)} PENDING · ${destination.noteCount} NOTE${destination.noteCount === 1 ? "" : "S"}</text>
+      </g>`;
+  }).join("");
+
+  return `<div class="note-map metro-map">
+    <svg viewBox="0 0 1060 ${height}" role="img" aria-label="Shielded note transit map from Ethereum through F5 to configured L2 chains">
+      <line class="metro-route route-teal" x1="110" y1="${centerY}" x2="410" y2="${centerY}" />
+      <circle class="metro-station" cx="110" cy="${centerY}" r="20" />
+      <text class="metro-source-total" x="62" y="${centerY - 78}">${fmt(l1Total)} ETH</text>
+      <text class="metro-source-name" x="62" y="${centerY + 67}">ETHEREUM</text>
+      <text class="metro-source-detail" x="62" y="${centerY + 92}">${l1NoteCount} READY NOTE${l1NoteCount === 1 ? "" : "S"}</text>
+      ${routes}
+      <image class="metro-interchange" href="/f5-eye.svg" x="399" y="${centerY - 32}" width="64" height="64" />
+      <text class="metro-interchange-label" x="431" y="${centerY + 91}">F5</text>
+      ${destinations.length ? "" : `<text class="metro-empty" x="650" y="${centerY}">NO L2 DESTINATIONS CONFIGURED</text>`}
+    </svg>
+  </div>`;
 }
 
 function depositView() {

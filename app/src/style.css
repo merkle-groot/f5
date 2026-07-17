@@ -161,35 +161,30 @@
 .home-lead{color:#555;font:500 14px 'DM Mono';margin:12px 0 30px}
 .map-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:36px}
 .map-heading h2{margin:6px 0 0;font-size:38px;line-height:1}
+.map-heading p{margin:10px 0 0;color:#555;font:600 12px 'DM Mono'}
 .map-total{text-align:right}
 .map-total span{display:block;font:500 11px 'DM Mono';letter-spacing:1.5px;color:#666}
 .map-total strong{display:block;margin-top:5px;font-size:30px;line-height:1}
-.map-total small,.map-chain-total small{font:500 12px 'DM Mono'}
-.note-map{display:grid;grid-template-columns:minmax(150px,1fr) 88px minmax(230px,1.25fr);gap:28px;align-items:center;margin:0 0 28px;padding:32px 24px;border:4px solid var(--ink);background-image:radial-gradient(#d2cec5 1.5px,transparent 1.5px);background-size:18px 18px}
-.map-chain{position:relative;z-index:1;min-width:0}
-.map-chain-total{margin-bottom:8px;font-size:24px;font-weight:700;line-height:1}
-.map-chain-card{display:flex;align-items:center;gap:12px;min-height:78px;padding:14px;border:4px solid var(--ink);background:var(--paper);box-shadow:4px 4px 0 var(--ink)}
-.map-chain-card>div{min-width:0}
-.map-chain-card b,.map-chain-card small{display:block}
-.map-chain-card b{font-size:15px;line-height:1.1;text-transform:uppercase}
-.map-chain-card small{margin-top:7px;color:#555;font:500 10px 'DM Mono';line-height:1.4}
-.map-chain-icon{display:grid;place-items:center;flex:none;width:40px;height:40px;border:3px solid var(--ink);border-radius:50%;background:var(--yellow);font:700 12px 'DM Mono'}
-.map-chain.has-value .map-chain-card{background:var(--teal)}
-.map-chain.has-pending .map-chain-card{background:var(--yellow)}
-.map-chain.is-empty{opacity:.58}
-.map-relay{position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center}
-.map-relay::before,.map-relay::after{content:"";position:absolute;top:30px;width:calc(50% + 30px);height:4px;background:var(--ink);z-index:-1}
-.map-relay::before{right:50%}
-.map-relay::after{left:50%}
-.map-relay-eye{display:block;width:58px;height:58px;border:4px solid var(--ink);border-radius:12px;background:var(--ink);box-shadow:4px 4px 0 var(--yellow);overflow:hidden}
-.map-relay-eye img{display:block;width:100%;height:100%}
-.map-relay b{padding:4px 6px;background:var(--paper);font:700 10px 'DM Mono';letter-spacing:1px}
-.map-destinations{position:relative;display:flex;flex-direction:column;gap:22px;padding-left:28px}
-.map-destinations::before{content:"";position:absolute;left:0;top:38px;bottom:38px;width:4px;background:var(--ink)}
-.map-destination::before{content:"";position:absolute;left:-28px;top:48px;width:28px;border-top:4px solid var(--ink)}
-.map-destination.has-pending::before{border-top-color:var(--yellow)}
-.map-destination.is-empty::before{border-top-style:dashed;border-top-color:#888}
-.map-empty{padding:20px;border:3px dashed #999;background:var(--paper);font:500 11px 'DM Mono';color:#666}
+.map-total small{font:500 12px 'DM Mono'}
+.note-map{margin:0 0 28px;padding:18px;border:5px solid var(--ink);background:var(--paper);box-shadow:7px 7px 0 var(--ink);overflow-x:auto}
+.note-map svg{display:block;width:100%;min-width:760px;height:auto}
+.route-teal{--route-color:var(--teal)}
+.route-blue{--route-color:var(--blue)}
+.route-pink{--route-color:var(--pink)}
+.route-yellow{--route-color:var(--yellow)}
+.metro-route{fill:none;stroke:var(--route-color);stroke-width:14;stroke-linecap:round}
+.metro-station{fill:var(--paper);stroke:var(--ink);stroke-width:8}
+.metro-badge{fill:var(--route-color);stroke:var(--ink);stroke-width:7}
+.metro-badge-text,.metro-chain-name,.metro-chain-total,.metro-chain-detail,.metro-source-total,.metro-source-name,.metro-source-detail,.metro-interchange-label,.metro-empty{fill:var(--ink);font-family:'DM Mono',monospace}
+.metro-badge-text{font-size:14px;font-weight:800;text-anchor:middle;dominant-baseline:middle}
+.metro-chain-total,.metro-source-total{font-size:21px;font-weight:800}
+.metro-chain-name,.metro-source-name{font-size:19px;font-weight:900}
+.metro-chain-detail,.metro-source-detail{fill:#666;font-size:11px;font-weight:700}
+.metro-interchange-label{font-size:18px;font-weight:900;text-anchor:middle}
+.metro-empty{fill:#666;font-size:14px;font-weight:700}
+.metro-destination.has-pending .metro-station{fill:var(--yellow)}
+.metro-destination.has-value .metro-station{fill:var(--teal)}
+.metro-destination.is-empty .metro-station{fill:var(--paper)}
 .map-legend{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:28px;font:700 10px 'DM Mono';letter-spacing:.5px}
 .map-legend span{display:flex;align-items:center;gap:7px}
 .legend-dot{display:inline-block;width:13px;height:13px;border:3px solid var(--ink);border-radius:50%}
@@ -221,11 +216,6 @@
   .mini-flow-targets .mini-flow-node>span{margin-bottom:0}
   .map-heading{align-items:flex-start;flex-direction:column}
   .map-total{text-align:left}
-  .note-map{grid-template-columns:1fr;padding:24px 18px;gap:34px}
-  .map-relay::before,.map-relay::after{left:50%;right:auto;top:auto;width:4px;height:34px;transform:translateX(-50%)}
-  .map-relay::before{bottom:100%}
-  .map-relay::after{top:100%}
-  .map-destinations{padding-left:0}
-  .map-destinations::before,.map-destination::before{display:none}
+  .note-map{padding:12px}
 }
 @media(prefers-reduced-motion:reduce){.flow-trace{animation:none;stroke-dasharray:none}}
