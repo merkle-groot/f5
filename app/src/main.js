@@ -692,11 +692,11 @@ function metroMap(destinations, l1Total, l1NoteCount) {
       <line class="metro-route route-teal" x1="277" y1="${centerY}" x2="402" y2="${centerY}" />
       ${routes}
       <g class="metro-source-card">
-        <circle class="metro-badge route-teal" cx="69" cy="${centerY}" r="24" />
-        <text class="metro-badge-text" x="69" y="${centerY + 1}">Ξ</text>
-        <text class="metro-chain-total" x="108" y="${centerY - 25}"><tspan>${fmt(l1Total)}</tspan><tspan class="metro-currency" dx="7">ETH</tspan></text>
-        <text class="metro-chain-name" x="108" y="${centerY + 4}">ETHEREUM</text>
-        <text class="metro-chain-detail" x="108" y="${centerY + 30}">${l1NoteCount} READY NOTE${l1NoteCount === 1 ? "" : "S"}</text>
+        <text class="metro-chain-total" x="235" y="${centerY - 25}" text-anchor="end"><tspan>${fmt(l1Total)}</tspan><tspan class="metro-currency" dx="7">ETH</tspan></text>
+        <text class="metro-chain-name" x="235" y="${centerY + 4}" text-anchor="end">ETHEREUM</text>
+        <text class="metro-chain-detail" x="235" y="${centerY + 30}" text-anchor="end">${l1NoteCount} READY NOTE${l1NoteCount === 1 ? "" : "S"}</text>
+        <circle class="metro-badge route-teal" cx="277" cy="${centerY}" r="24" />
+        <text class="metro-badge-text" x="277" y="${centerY + 1}">Ξ</text>
       </g>
       ${destinationCards}
       <image class="metro-interchange" href="/f5-eye.svg" x="399" y="${centerY - 32}" width="64" height="64" />
