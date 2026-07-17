@@ -776,8 +776,8 @@ function sendView() {
         <div class="key-actions"><button id="resolve-recipient" class="secondary-btn">CHECK REGISTRY</button></div>
         ${send.resolved ? `<div class="notice teal-card"><strong>REGISTERED RECIPIENT</strong><span>B ${short(send.resolved.B[0].toString())}…<br>V ${short(send.resolved.V[0].toString())}…</span></div>` : ""}`
         : `<div class="notice teal-card"><strong>SELF BRIDGE</strong><span>The destination note will use the shielded address derived from this vault.</span></div>`}
-      <div class="notice ${draft?.relayed ? "teal-card" : "pink-card"}">
-        ${draft?.relayed ? `<strong>DELIVERED</strong>` : draft?.proof ? `<strong>PROOF READY</strong>` : recipientMode === "self" ? "" : `<strong>REGISTRY ADDRESS ONLY</strong>`}
+      ${draft?.relayed || draft?.proof || recipientMode === "other" ? `<div class="notice ${draft?.relayed ? "teal-card" : "pink-card"}">
+        <strong>${draft?.relayed ? "DELIVERED" : draft?.proof ? "PROOF READY" : "REGISTRY ADDRESS ONLY"}</strong>
         <span>${draft?.relayed
           ? "The note is bridging. The recipient finds it by scanning. You send them nothing, and you can close this tab."
           : draft?.proof
@@ -785,7 +785,7 @@ function sendView() {
             : recipientMode === "self"
               ? "Only this vault's public shielded keys are used. Your private keys stay local."
               : "The L1 address must have published a shielded address in the registry. Private keys are never requested."}</span>
-      </div>
+      </div>` : ""}
       <button id="action" class="primary" ${ready.length && send.destinationChosen && recipientReady && !draft?.relayed && !state.busy ? "" : "disabled"}>${action}</button>
       <div class="micro">self uses this vault　★　other users must be registered on L1</div>
     </section>`;
