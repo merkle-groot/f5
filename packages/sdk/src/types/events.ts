@@ -20,7 +20,10 @@ export interface DepositEvent {
 export interface WithdrawalEvent {
   withdrawn: bigint;
   spentNullifier: Hash;
+  /** The L1 change note — the leaf actually inserted into the L1 tree. */
   newCommitment: Hash;
+  /** `C_dest`, the bridged destination note. Delivered to L2, never inserted on L1. */
+  newCommitmentL2: Hash;
   blockNumber: bigint;
   transactionHash: Hex;
 }

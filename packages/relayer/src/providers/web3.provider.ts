@@ -5,6 +5,7 @@ import {
   getSignerPrivateKey
 } from "../config/index.js";
 import { FeeCommitment } from "../interfaces/relayer/common.js";
+import { CoalescedTtlCache } from "../utils/coalescedCache.js";
 import { createChainObject } from "../utils.js";
 
 interface IWeb3Provider {
@@ -35,8 +36,12 @@ export class Web3Provider implements IWeb3Provider {
   chains: { [key: number]: Chain; };
   clients: { [key: number]: PublicClient; };
   signers: { [key: number]: WalletClient; };
+  private readonly gasPrices: CoalescedTtlCache<number, bigint>;
 
   constructor() {
+    this.gasPrices = new CoalescedTtlCache<number, bigint>(
+      Number(process.env.GAS_PRICE_CACHE_MS ?? 1500),
+    );
     this.chains = Object.fromEntries(CONFIG.chains.map(chainConfig => {
       return [chainConfig.chain_id, createChainObject(chainConfig)];
     }));
@@ -78,7 +83,7 @@ export class Web3Provider implements IWeb3Provider {
   }
 
   async getGasPrice(chainId: number): Promise<bigint> {
-    return await this.client(chainId).getGasPrice();
+    return this.gasPrices.get(chainId, () => this.client(chainId).getGasPrice());
   }
 
   async signRelayerCommitment(chainId: number, commitment: Omit<FeeCommitment, 'signedRelayerCommitment'>) {

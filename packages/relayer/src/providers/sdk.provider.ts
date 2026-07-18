@@ -14,7 +14,8 @@ import {
 } from "@0xbow/privacy-pools-core-sdk";
 import { Address } from "viem";
 import {
-  CONFIG
+  CONFIG,
+  getSignerPrivateKey
 } from "../config/index.js";
 import { WithdrawalPayload } from "../interfaces/relayer/request.js";
 import { RelayerError, SdkError, ConfigError } from "../exceptions/base.exception.js";
@@ -46,7 +47,10 @@ export class SdkProvider implements SdkProviderInterface {
         
         // Get entrypoint address and signer private key
         const entrypointAddress = chainConfig.entrypoint_address || CONFIG.defaults.entrypoint_address;
-        const signerPrivateKey = chainConfig.signer_private_key || CONFIG.defaults.signer_private_key;
+        // Resolve through the shared helper, not the config directly: it also honours
+        // RELAYER_PRIVATE_KEY. Reading the config here meant this SDK instance and web3Provider's
+        // signer could silently be two DIFFERENT accounts whenever the env override was set.
+        const signerPrivateKey = getSignerPrivateKey(chainConfig.chain_id) as `0x${string}`;
         
         // Create contract instance
         const contracts = this.sdk.createContractInstance(
@@ -144,5 +148,24 @@ export class SdkProvider implements SdkProviderInterface {
         throw RelayerError.unknown(JSON.stringify(error));
       }
     }
+  }
+
+  /**
+   * The L1->L2 message/gas fee the relayer must front for a `relay()` bound to
+   * `destinationChainId` (0 for OP-Stack, non-zero for Arbitrum/Starknet). Read
+   * from the on-chain bridge config via the SDK so the pool and quote never drift.
+   *
+   * @param {number} processingChainId - The chain the relay is submitted on (where the entrypoint lives).
+   * @param {Address} assetAddress - The pool asset (native sentinel or ERC20).
+   * @param {bigint} destinationChainId - The bridge destination (`withdrawal.chainId`).
+   * @returns {Promise<bigint>} - The fronted fee in wei.
+   */
+  async bridgeMsgValue(
+    processingChainId: number,
+    assetAddress: Address,
+    destinationChainId: bigint,
+  ): Promise<bigint> {
+    const contracts = this.getContractsForChain(processingChainId);
+    return contracts.bridgeMsgValue(assetAddress, destinationChainId);
   }
 }

@@ -1,5 +1,5 @@
 import { mnemonicToAccount } from "viem/accounts";
-import { bytesToNumber } from "viem/utils";
+import { bytesToBigInt } from "viem/utils";
 import { poseidon } from "maci-crypto/build/ts/hashing.js";
 import { LeanIMT, LeanIMTMerkleProof } from "@zk-kit/lean-imt";
 import {
@@ -35,29 +35,44 @@ function validateNonZero(value: bigint, name: string) {
 }
 
 /**
- * Generates two master keys based on some provided seed or a random value.
+ * Derive the two master keys that seed every L1 note secret, from the mnemonic.
  *
- * @param {Hex} seed - The optional seed.
- * @returns {MasterKeys} The master key pair.
+ * `masterNullifier` and `masterSecret` come from HD accounts 0 and 1. Everything
+ * a deposit needs is then `Poseidon(master, scope, index)`, which is what makes
+ * notes recoverable from the phrase alone.
+ *
+ * CRITICAL — read before touching the derivation:
+ *
+ * This previously ran the 32-byte HD key through viem's `bytesToNumber`, which
+ * returns a JavaScript `number` (an IEEE-754 double). A 256-bit key is ~7.8e76,
+ * far past `Number.MAX_SAFE_INTEGER`, so the double kept only its 53-bit mantissa
+ * and SILENTLY ROUNDED — zeroing the low ~203 bits. The master keys therefore had
+ * roughly 53 bits of entropy each instead of 256, and `BigInt(key1)` was not even
+ * the real private key. `bytesToBigInt` is the correct conversion; `bytesToNumber`
+ * must never be used on key material.
+ *
+ * Changing this CHANGES EVERY DERIVED NOTE SECRET. It was safe to fix only because
+ * the pool had zero deposits at the time. Anyone altering it later must treat it as
+ * a migration: existing notes would become underivable, and therefore unspendable.
  */
 export function generateMasterKeys(mnemonic: string): MasterKeys {
-    if (!mnemonic) {
-        throw new PrivacyPoolError(
-            ErrorCode.INVALID_VALUE,
-            "Invalid input: mnemonic phrase is required."
-        );
-    }
-     
-    const key1 = bytesToNumber(
-      mnemonicToAccount(mnemonic, { accountIndex: 0 }).getHdKey().privateKey!,
+  if (!mnemonic) {
+    throw new PrivacyPoolError(
+      ErrorCode.INVALID_VALUE,
+      "Invalid input: mnemonic phrase is required."
     );
+  }
 
-    const key2 = bytesToNumber(
-      mnemonicToAccount(mnemonic, { accountIndex: 1 }).getHdKey().privateKey!,
-    );
+  const key1 = bytesToBigInt(
+    mnemonicToAccount(mnemonic, { accountIndex: 0 }).getHdKey().privateKey!,
+  );
 
-    const masterNullifier = poseidon([BigInt(key1)]) as Secret;
-    const masterSecret = poseidon([BigInt(key2)]) as Secret;
+  const key2 = bytesToBigInt(
+    mnemonicToAccount(mnemonic, { accountIndex: 1 }).getHdKey().privateKey!,
+  );
+
+  const masterNullifier = poseidon([key1]) as Secret;
+  const masterSecret = poseidon([key2]) as Secret;
 
   return { masterNullifier, masterSecret };
 }
@@ -340,9 +355,11 @@ export function calculateRelayContext(
  */
 export function poseidonFold(inputs: bigint[]): bigint {
   if (inputs.length < 2) throw new Error("poseidonFold: need >= 2 inputs");
-  let acc = poseidon([inputs[0], inputs[1]]);
+  // The length guard above makes every index below in-bounds; `!` is what tells
+  // `noUncheckedIndexedAccess` that.
+  let acc = poseidon([inputs[0]!, inputs[1]!]);
   for (let i = 2; i < inputs.length; i++) {
-    acc = poseidon([acc, inputs[i]]);
+    acc = poseidon([acc, inputs[i]!]);
   }
   return acc;
 }

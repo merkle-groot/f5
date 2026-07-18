@@ -26,20 +26,20 @@ export interface WithdrawPublicSignals {
   newCommitmentHashL2: bigint;
   /** [2] Hash of the spent note's nullifier. */
   existingNullifierHash: bigint;
-  /** [3] Withdrawn (bridged) value. */
+  /** [3] Gross value spent from the L1 note. */
   withdrawnValue: bigint;
-  /** [4] State root the inclusion proof was built against. */
-  stateRoot: bigint;
-  /** [5] Depth of the state tree. */
-  stateTreeDepth: bigint;
-  /** [6] ASP association root. */
-  ASPRoot: bigint;
-  /** [7] Depth of the ASP tree. */
-  ASPTreeDepth: bigint;
-  /** [8] Context binding the proof to the relay request. */
-  context: bigint;
-  /** [9] Net value delivered to L2 after the relay fee. */
+  /** [4] Net value delivered to L2 after the relay fee. */
   bridgedValue: bigint;
+  /** [5] State root the inclusion proof was built against. */
+  stateRoot: bigint;
+  /** [6] Depth of the state tree. */
+  stateTreeDepth: bigint;
+  /** [7] ASP association root. */
+  ASPRoot: bigint;
+  /** [8] Depth of the ASP tree. */
+  ASPTreeDepth: bigint;
+  /** [9] Context binding the proof to the relay request. */
+  context: bigint;
 }
 
 /**

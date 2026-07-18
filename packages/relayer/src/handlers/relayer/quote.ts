@@ -2,7 +2,7 @@ import { NextFunction, Request, Response } from "express";
 import { getAddress, toHex } from "viem";
 import { getAssetConfig, getFeeReceiverAddress, getSignerPrivateKey } from "../../config/index.js";
 import { QuoterError, ValidationError } from "../../exceptions/base.exception.js";
-import { web3Provider } from "../../providers/index.js";
+import { getSdkProvider, web3Provider } from "../../providers/index.js";
 import { quoteService } from "../../services/index.js";
 import { QuoteMarshall } from "../../types.js";
 import { encodeWithdrawalData, isFeeReceiverSameAsSigner, isNative } from "../../utils.js";
@@ -33,10 +33,28 @@ export async function relayQuoteHandler(
     extraGas = false;
   }
 
+  // When a destination chain is supplied, price the L1->L2 message/gas fee the relayer
+  // fronts for it into the quote (non-zero for Arbitrum/Starknet, 0 for OP-Stack). Read
+  // from the same on-chain bridge config the pool enforces, so quote and relay never drift.
+  let bridgeFeeWei = 0n;
+  if (req.body.destinationChainId !== undefined && req.body.destinationChainId !== null) {
+    try {
+      bridgeFeeWei = await getSdkProvider().bridgeMsgValue(
+        chainId,
+        asset,
+        BigInt(req.body.destinationChainId.toString()),
+      );
+    } catch (e) {
+      // Don't fail the quote if the bridge fee can't be read; the relay still attaches the
+      // correct `msg.value` at broadcast time. Log so under-pricing is visible.
+      console.warn(`[QUOTE] Could not read bridge fee for destination ${req.body.destinationChainId}: ${e}`);
+    }
+  }
+
   let quote: QuoteFee;
   try {
     quote = await quoteService.quoteFeeBPSNative({
-      chainId, amountIn, assetAddress: asset, baseFeeBPS: config.fee_bps, extraGas: extraGas
+      chainId, amountIn, assetAddress: asset, baseFeeBPS: config.fee_bps, extraGas: extraGas, bridgeFeeWei
     });
   } catch (e) {
     return next(e);

@@ -69,6 +69,7 @@ abstract contract DeployProtocol is Script {
   address public postman;
 
   address public deployer;
+  uint256 public deploymentVersion;
 
   // @notice CreateX Singleton
   ICreateX public constant CreateX = ICreateX(0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed);
@@ -86,10 +87,18 @@ abstract contract DeployProtocol is Script {
     postman = vm.envAddress('POSTMAN_ADDRESS');
 
     deployer = vm.envAddress('DEPLOYER_ADDRESS');
+    deploymentVersion = vm.envOr('DEPLOYMENT_VERSION', uint256(0));
 
     if (owner == address(0) || postman == address(0) || deployer == address(0)) {
       revert MissingDeploymentAddress();
     }
+  }
+
+  /// @dev Versioned salts allow a protocol redeploy when one component's bytecode changes while
+  /// preserving the original deterministic addresses for the first deployment.
+  function _deploymentSalt(bytes11 _baseSalt) internal view returns (bytes32) {
+    if (deploymentVersion == 0) return DeployLib.salt(deployer, _baseSalt);
+    return DeployLib.salt(deployer, bytes11(keccak256(abi.encodePacked(_baseSalt, deploymentVersion))));
   }
 
   // @dev Must be called with the `--account` flag which acts as the caller
@@ -123,7 +132,7 @@ abstract contract DeployProtocol is Script {
   function _deployGroth16Verifiers() private {
     // Deploy WithdrawalVerifier using Create2
     withdrawalVerifier = CreateX.deployCreate2(
-      DeployLib.salt(deployer, DeployLib.WITHDRAWAL_VERIFIER_SALT),
+      _deploymentSalt(DeployLib.WITHDRAWAL_VERIFIER_SALT),
       abi.encodePacked(type(WithdrawalVerifier).creationCode)
     );
 
@@ -145,7 +154,7 @@ abstract contract DeployProtocol is Script {
 
     // Deploy CommitmentVerifier using Create2
     ragequitVerifier = CreateX.deployCreate2(
-      DeployLib.salt(deployer, DeployLib.RAGEQUIT_VERIFIER_SALT),
+      _deploymentSalt(DeployLib.RAGEQUIT_VERIFIER_SALT),
       abi.encodePacked(type(CommitmentVerifier).creationCode)
     );
 
@@ -169,14 +178,14 @@ abstract contract DeployProtocol is Script {
   function _deployEntrypoint() private {
     // Deploy Entrypoint implementation
     address _impl =
-      CreateX.deployCreate2(DeployLib.salt(deployer, DeployLib.ENTRYPOINT_IMPL_SALT), type(Entrypoint).creationCode);
+      CreateX.deployCreate2(_deploymentSalt(DeployLib.ENTRYPOINT_IMPL_SALT), type(Entrypoint).creationCode);
 
     // Encode `initialize` call data
     bytes memory _intializationData = abi.encodeCall(Entrypoint.initialize, (owner, postman));
 
     // Deploy proxy and initialize
     address _entrypoint = CreateX.deployCreate2(
-      DeployLib.salt(deployer, DeployLib.ENTRYPOINT_PROXY_SALT),
+      _deploymentSalt(DeployLib.ENTRYPOINT_PROXY_SALT),
       abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(_impl, _intializationData))
     );
 
@@ -222,7 +231,7 @@ abstract contract DeployProtocol is Script {
 
     // Deploy pool with Create2
     address _pool = CreateX.deployCreate2(
-      DeployLib.salt(deployer, DeployLib.NATIVE_POOL_SALT),
+      _deploymentSalt(DeployLib.NATIVE_POOL_SALT),
       abi.encodePacked(type(PrivacyPool).creationCode, constructorArgs)
     );
 
@@ -264,7 +273,7 @@ abstract contract DeployProtocol is Script {
     bytes11 _tokenSalt = bytes11(keccak256(abi.encodePacked(DeployLib.TOKEN_POOL_SALT, _config.symbol)));
 
     address _pool = CreateX.deployCreate2(
-      DeployLib.salt(deployer, _tokenSalt), abi.encodePacked(type(PrivacyPool).creationCode, constructorArgs)
+      _deploymentSalt(_tokenSalt), abi.encodePacked(type(PrivacyPool).creationCode, constructorArgs)
     );
 
     // Register pool at entrypoint with defined configuration

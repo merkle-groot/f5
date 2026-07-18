@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import minimist from 'minimist';
 import { getAddress } from 'viem';
 import { quote, request } from "./api-test.js";
@@ -5,6 +6,21 @@ import { ChainContext } from "./chain.js";
 import { feeRecipient, PRIVATE_KEY, processooor, recipient } from "./constants.js";
 import { encodeFeeData, isNative } from "./util.js";
 import { SdkWrapper } from './sdk-wrapper.js';
+import { derivePublicKey, NoteService } from "@0xbow/privacy-pools-core-sdk";
+
+/**
+ * The destination the note is bridged to. Mode-3 has no `processooor`: a relay
+ * targets a DESTINATION CHAIN, and that chain id is bound into the proof context.
+ */
+const DESTINATION_CHAIN_ID = 11155420n; // OP Sepolia
+
+/**
+ * The recipient's shielded address. The harness plays both parts, but the SENDER
+ * side must only ever touch the PUBLIC half — `(B, V)`. The private scalars exist
+ * here solely so the script can also scan for what it sent.
+ */
+const RECIPIENT_SPEND_KEY = 987654321098765n;
+const RECIPIENT_VIEW_KEY = 123456789012345n;
 import * as fs from "fs";
 
 interface Context {
@@ -100,7 +116,22 @@ export async function relayCli({ asset, withQuote, amount, extraGas, fromDeposit
   // 0.1 ETH or 1.5 dollars
   const withdrawAmount = amount;
 
+  // Build the stealth material FIRST: the RelayData bytes carry `E` and the view
+  // tag, and the proof context binds those exact bytes — so the quote and the
+  // proof must be built from one and the same ephemeral scalar.
+  const shielded = {
+    B: derivePublicKey(RECIPIENT_SPEND_KEY),
+    V: derivePublicKey(RECIPIENT_VIEW_KEY),
+  };
+  const ephemeralScalar = BigInt(`0x${randomBytes(31).toString("hex")}`);
+  const preview = new NoteService().buildDestNote(shielded, withdrawAmount, ephemeralScalar);
+  const stealth = {
+    ephemeralKey: preview.ephemeralKey,
+    viewTag: `0x${preview.viewTag.toString(16).padStart(2, "0")}` as `0x${string}`,
+  };
+
   let data;
+  let relayFeeBPS: bigint;
   let feeCommitment = undefined;
   if (withQuote) {
     const quoteRes = await quote({
@@ -108,20 +139,30 @@ export async function relayCli({ asset, withQuote, amount, extraGas, fromDeposit
       amount: withdrawAmount.toString(),
       asset,
       recipient,
+      ephemeralKey: stealth.ephemeralKey.map(String),
+      viewTag: stealth.viewTag,
       extraGas
     });
     data = quoteRes.feeCommitment!.withdrawalData as `0x${string}`;
+    relayFeeBPS = BigInt(quoteRes.feeBPS);
     feeCommitment = {
       ...quoteRes.feeCommitment,
     };
   } else {
-    data = encodeFeeData({ recipient, feeRecipient, relayFeeBPS: 100n });
+    relayFeeBPS = 100n;
+    data = encodeFeeData({ recipient, feeRecipient, relayFeeBPS, ...stealth });
   }
 
-  const withdrawal = { processooor, data };
+  // The relayer re-derives this from the signed bytes and rejects a mismatch.
+  const bridgedValue = withdrawAmount - ((withdrawAmount * relayFeeBPS) / 10_000n);
+
+  const withdrawal = { chainId: DESTINATION_CHAIN_ID, data };
 
   // prove
-  const { proof, publicSignals } = await sdkWrapper.proveWithdrawal(withdrawAmount, withdrawal, scope, label, value, note, newNote, leaves);
+  const { proof, publicSignals } = await sdkWrapper.proveWithdrawalL1(
+    withdrawAmount, bridgedValue, withdrawal, shielded, ephemeralScalar,
+    scope, label, value, note, newNote, leaves,
+  );
 
   const requestBody = {
     scope: scope.toString(),

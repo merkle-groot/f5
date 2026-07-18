@@ -122,14 +122,16 @@ interface IL2PrivacyPool {
 
   /**
    * @notice Receive a bridged note message from the L1 pool (the note-carrying bridge op)
-   * @dev Cross-domain authenticated: callable only by the L2 messenger relaying a message whose L1
-   *      sender is the configured L1 pool. Records the note as pending and activates it immediately
-   *      if its bridged tokens have already landed. Named `deposit` to match the wire selector the
-   *      L1 pool encodes into the bridge message; it is not a public deposit.
+   * @dev Cross-domain authenticated: callable only when the note can be proven to originate from the
+   *      configured L1 pool (via the L2 messenger on OP-Stack, or address aliasing on Arbitrum).
+   *      Records the note as pending and activates it immediately if its bridged tokens have already
+   *      landed. Named `deposit` to match the wire selector the L1 pool encodes into the bridge
+   *      message; it is not a public deposit. Payable so a native Arbitrum delivery can carry the
+   *      bridged ETH as the retryable ticket's call value.
    * @param _value The note value carried in cleartext
    * @param _commitmentHash The destination-note commitment (C_dest)
    */
-  function deposit(uint256 _value, uint256 _commitmentHash) external;
+  function deposit(uint256 _value, uint256 _commitmentHash) external payable;
 
   /**
    * @notice Activate a pending note once its bridged tokens have landed, inserting it into the tree

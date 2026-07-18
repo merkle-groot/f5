@@ -96,7 +96,14 @@ export function getFeeReceiverAddress(chainId: number): string {
 export function getSignerPrivateKey(chainId: number): string {
   const chainConfig = getChainConfig(chainId);
   const environmentKey = process.env.RELAYER_PRIVATE_KEY || process.env.RELAYER_SIGNER_PRIVATE_KEY;
-  return environmentKey || chainConfig.signer_private_key || CONFIG.defaults.signer_private_key;
+  const key = environmentKey || chainConfig.signer_private_key || CONFIG.defaults.signer_private_key;
+  if (!key) {
+    throw ConfigError.default(
+      `No signer key for chain ${chainId}. Set RELAYER_PRIVATE_KEY in the environment (preferred: `
+        + `.env is gitignored, the JSON config is not), or signer_private_key in the config file.`,
+    );
+  }
+  return key;
 }
 
 /**

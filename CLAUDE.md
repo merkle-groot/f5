@@ -84,9 +84,11 @@ On proof acceptance, the L1 pool burns the note (`nullifierHash` marked spent) a
 
 They arrive in separate transactions with **no ordering guarantee**. The L2 pool enforces, entirely on-chain:
 
-- **Cross-domain auth** — `xDomainMessageSender == L1Pool`. Otherwise anyone mints backed claims.
+- **Cross-domain auth** — the note must be provably from `L1Pool`, or anyone mints backed claims. The *proof* is bridge-family-specific: OP-Stack checks `xDomainMessageSender == L1Pool` via the L2 messenger; **Arbitrum** has no messenger, so the note arrives as a direct call whose `msg.sender` is the L1 pool's *aliased* address and the L2 pool checks `undoL1ToL2Alias(msg.sender) == L1Pool`.
 - **Backing invariant** — `spendableShieldedSupply ≤ tokensReceivedFromBridge`. A note is inserted as *pending* and becomes *spendable* only once matching bridged tokens have landed. This is what makes the unordered two-op split safe.
 - **Finality gate** — free. OP-Stack deposits derive from finalized L1 state, giving reorg safety across the whole path.
+
+The two ops above are the **OP-Stack** shape. The L1 pool's `_bridge` dispatches on a per-destination `BridgeKind` across three canonical families — **OP-Stack** (messenger + standard bridge), **Arbitrum** (Delayed Inbox retryable tickets + L1 Gateway Router; native ETH collapses to a *single* retryable carrying value as `l2CallValue`, so it delivers one op, not two), and **Starknet** (Starknet Core + StarkGate). Arbitrum/Starknet prepay the L1→L2 fee up front, fronted by the relayer as `msg.value`. See `packages/contracts/BRIDGE_TARGETS.md` for the full per-family breakdown.
 
 ---
 
@@ -135,6 +137,6 @@ Self-bridge (moving your own funds to spend privately on L2) is a strict special
 ## 12. Open items
 
 1. **Unified cross-chain note** — a note in the L2-A shielded pool spendable on L2-B without pre-committing a destination. Requires reconciled nullifier sets across chains. L1-as-single-nullifier-oracle is the sound design but pays the L2→L1 slow leg (a week on optimistic rollups). Highest-leverage research question; the item that would make Cutout unambiguously not a wrapper.
-2. **Gas delivery on destination** — recipient lands with a shielded note and no native gas. Options: relayer reimbursed from the note value, or a bundled native-gas drop. Now blocking, not optional.
+2. **Gas delivery on destination** — recipient lands with a shielded note and no native gas. Options: relayer reimbursed from the note value, or a bundled native-gas drop. Now blocking, not optional. *(Distinct and separate: the L1→L2 **messaging/execution** fee for Arbitrum/Starknet is handled — the relayer fronts it as `msg.value` and prices it into its quote. That delivers the note; it does not give the recipient native gas to initiate their own L2 spend, which is what this item is about. The L2 spend itself is relayer-submitted, fee deducted from the note.)*
 3. **Scanning throughput** — view-tag pre-filter is the cheap path; needs an indexer/light-scan story for recipients who don't run full infrastructure.
 4. **Committee-free amount privacy** — incremental/recursive folding where each user folds their own hidden value and only the per-chain sum is revealed. v2, only if amount privacy becomes non-negotiable.

@@ -1,6 +1,7 @@
 export * from "./types/index.js";
 export * from "./crypto.js";
 export * from "./stealth.js";
+export * from "./identity.js";
 export * from "./external.js";
 export { PrivacyPoolSDK } from "./core/sdk.js";
 

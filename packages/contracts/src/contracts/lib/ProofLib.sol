@@ -18,18 +18,23 @@ library ProofLib {
    * @param pB Second elliptic curve point (π_B) of the Groth16 proof, encoded as 2x2 matrix of field elements
    * @param pC Third elliptic curve point (π_C) of the Groth16 proof, encoded as two field elements
    * @param pubSignals Array of public inputs and outputs:
-   *        - [0] newCommitmentHashL1: Hash of the new commitment being created
-   *        - [1] newCommitmentHashL2: Hash of the new commitment being created
+   *        - [0] newCommitmentHashL1: Hash of the L1 change note
+   *        - [1] newCommitmentHashL2: Hash of the bridged destination note (C_dest)
    *        - [2] existingNullifierHash: Hash of the nullifier being spent
-   *        - [3] withdrawnValue: Amount being withdrawn
-   *        - [4] stateRoot: Current state root of the privacy pool
-   *        - [5] stateTreeDepth: Current depth of the state tree
-   *        - [6] ASPRoot: Current root of the Association Set Provider tree
-   *        - [7] ASPTreeDepth: Current depth of the ASP tree
-   *        - [8] context: Context value for the withdrawal operation
-   *        - [9] bridgedValue: Net value delivered to L2 after the relay fee
-   * NOTE: the public signal order is the three circuit outputs first, followed by
-   * the `public[...]` inputs in the generated circuit's order.
+   *        - [3] withdrawnValue: Gross amount spent from the L1 note
+   *        - [4] bridgedValue: Net value delivered to L2 after the relay fee
+   *        - [5] stateRoot: Current state root of the privacy pool
+   *        - [6] stateTreeDepth: Current depth of the state tree
+   *        - [7] ASPRoot: Current root of the Association Set Provider tree
+   *        - [8] ASPTreeDepth: Current depth of the ASP tree
+   *        - [9] context: Context value for the withdrawal operation
+   * NOTE: circom derives this order from the TEMPLATE's signal DECLARATION order
+   * (the three outputs first, then the inputs) — NOT from the order listed in
+   * `component main {public [...]}`. `withdrawL1.circom` declares `bridgedValue`
+   * second, immediately after `withdrawnValue`, so it sits at index 4 even though
+   * the `main` list names it last. Reading it at [9] (and thus `stateRoot` at [4])
+   * made every `relay()` revert with `ContextMismatch`.
+   * Ground truth: `packages/circuits/build/withdrawL1/withdrawL1.sym`.
    */
   struct WithdrawProof {
     uint256[2] pA;
@@ -68,10 +73,19 @@ library ProofLib {
   /**
    * @notice Retrieves the withdrawn value from the proof's public signals
    * @param _p The proof containing the public signals
-   * @return The amount being withdrawn from Privacy Pool
+   * @return The gross amount spent from the L1 note
    */
   function withdrawnValue(WithdrawProof memory _p) internal pure returns (uint256) {
     return _p.pubSignals[3];
+  }
+
+  /**
+   * @notice Retrieves the bridged value from the proof's public signals
+   * @param _p The proof containing the public signals
+   * @return The net value delivered to L2 after the relay fee
+   */
+  function bridgedValue(WithdrawProof memory _p) internal pure returns (uint256) {
+    return _p.pubSignals[4];
   }
 
   /**
@@ -80,7 +94,7 @@ library ProofLib {
    * @return The root of the state tree at time of proof generation
    */
   function stateRoot(WithdrawProof memory _p) internal pure returns (uint256) {
-    return _p.pubSignals[4];
+    return _p.pubSignals[5];
   }
 
   /**
@@ -89,7 +103,7 @@ library ProofLib {
    * @return The depth of the state tree at time of proof generation
    */
   function stateTreeDepth(WithdrawProof memory _p) internal pure returns (uint256) {
-    return _p.pubSignals[5];
+    return _p.pubSignals[6];
   }
 
   /**
@@ -98,7 +112,7 @@ library ProofLib {
    * @return The latest root of the ASP tree at time of proof generation
    */
   function ASPRoot(WithdrawProof memory _p) internal pure returns (uint256) {
-    return _p.pubSignals[6];
+    return _p.pubSignals[7];
   }
 
   /**
@@ -107,7 +121,7 @@ library ProofLib {
    * @return The depth of the ASP tree at time of proof generation
    */
   function ASPTreeDepth(WithdrawProof memory _p) internal pure returns (uint256) {
-    return _p.pubSignals[7];
+    return _p.pubSignals[8];
   }
 
   /**
@@ -116,10 +130,6 @@ library ProofLib {
    * @return The context value binding the proof to specific withdrawal data
    */
   function context(WithdrawProof memory _p) internal pure returns (uint256) {
-    return _p.pubSignals[8];
-  }
-
-  function bridgedValue(WithdrawProof memory _p) internal pure returns (uint256) {
     return _p.pubSignals[9];
   }
 

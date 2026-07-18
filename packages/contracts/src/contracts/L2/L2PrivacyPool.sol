@@ -108,7 +108,10 @@ contract L2PrivacyPool is ReentrancyGuard, IL2PrivacyPool {
   ) {
     if (_asset == address(0)) revert ZeroAddress();
     if (_l1Pool == address(0)) revert ZeroAddress();
-    if (_messenger == address(0)) revert ZeroAddress();
+    // `_messenger` may be zero for bridge families that authenticate without a messenger
+    // (e.g. Arbitrum, which relays via address aliasing). Such deployments override
+    // `_authenticateNote` and never touch `MESSENGER`; an OP-Stack pool left with a zero
+    // messenger simply fails closed on every `deposit`.
     if (_withdrawalVerifier == address(0)) revert ZeroAddress();
 
     ASSET = _asset;
@@ -126,10 +129,12 @@ contract L2PrivacyPool is ReentrancyGuard, IL2PrivacyPool {
   //////////////////////////////////////////////////////////////*/
 
   /// @inheritdoc IL2PrivacyPool
-  function deposit(uint256 _value, uint256 _commitmentHash) external {
-    // Cross-domain auth: only the L2 messenger relaying a message from the L1 pool
-    if (msg.sender != address(MESSENGER)) revert NotMessenger();
-    if (MESSENGER.xDomainMessageSender() != L1_POOL) revert NotL1Pool();
+  /// @dev Payable so a native Arbitrum delivery can carry the bridged ETH as the retryable
+  ///      ticket's call value in the same message; OP-Stack sends value separately via `receive`.
+  function deposit(uint256 _value, uint256 _commitmentHash) external payable {
+    // Cross-domain auth: prove this note was relayed by the configured L1 pool. The proof
+    // differs per bridge family (messenger vs. address aliasing), so it lives in a hook.
+    _authenticateNote();
 
     // Reject duplicate deliveries of the same commitment
     if (receivedCommitments[_commitmentHash]) revert NoteAlreadyReceived();
@@ -140,6 +145,17 @@ contract L2PrivacyPool is ReentrancyGuard, IL2PrivacyPool {
 
     // Activate immediately if the bridged tokens have already landed
     _tryActivate(_commitmentHash);
+  }
+
+  /**
+   * @notice Authenticate that a `deposit` note was relayed by the configured L1 pool.
+   * @dev OP-Stack default: the note must arrive through the L2 cross-domain messenger whose
+   *      original L1 sender is `L1_POOL`. Bridge families that authenticate differently (Arbitrum
+   *      address aliasing) override this hook. Reverts if the sender cannot be proven to be `L1_POOL`.
+   */
+  function _authenticateNote() internal view virtual {
+    if (msg.sender != address(MESSENGER)) revert NotMessenger();
+    if (MESSENGER.xDomainMessageSender() != L1_POOL) revert NotL1Pool();
   }
 
   /// @inheritdoc IL2PrivacyPool

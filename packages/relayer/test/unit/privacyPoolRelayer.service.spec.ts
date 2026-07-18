@@ -2,7 +2,7 @@
  * Service-level tests for the Mode-3 relay flow. Unlike a mock-of-the-thing,
  * these drive the REAL `PrivacyPoolRelayer.handleRequest` / `validateWithdrawal`
  * with the REAL `utils` (`parseSignals`, `decode/encodeWithdrawalData`), so the
- * 9-signal `withdrawL1` layout and the `RelayData` (5-field) round-trip get
+ * 10-signal `withdrawL1` layout and the `RelayData` (5-field) round-trip get
  * genuine coverage. Only the outward dependencies — config, providers (db + SDK
  * + web3 + uniswap), and the quote service — are mocked.
  */
@@ -10,6 +10,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { getAddress, Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { Groth16Proof } from "snarkjs";
+import { WITHDRAW_L1_SIGNALS } from "@0xbow/privacy-pools-core-sdk";
 
 // Shared mutable mocks (hoisted so the vi.mock factories can close over them).
 const h = vi.hoisted(() => ({
@@ -94,11 +95,23 @@ function relayData(overrides: {
   });
 }
 
-/** withdrawL1 public signals (10): [3]=withdrawnValue, [8]=context, [9]=bridgedValue. */
+/**
+ * Build the 10 `withdrawL1` public signals by NAME, placing each at the index
+ * the circuit assigned it. Writing the array out positionally is what let the
+ * fixture drift from the circuit before — it agreed with a `parseSignals` that
+ * was itself wrong, so these tests passed while every real relay reverted.
+ * `WITHDRAW_L1_SIGNALS` is pinned to the circuit artifact by the SDK's
+ * `withdrawalSignals.spec.ts`.
+ */
 function signals(withdrawnValue: string, context = CONTEXT_DEC, relayFeeBPS = 1000n): string[] {
   const gross = BigInt(withdrawnValue);
   const bridged = gross - ((gross * relayFeeBPS) / 10_000n);
-  return ["0", "0", "0", withdrawnValue, "0", "0", "0", "0", context, bridged.toString()];
+
+  const out = new Array<string>(Object.keys(WITHDRAW_L1_SIGNALS).length).fill("0");
+  out[WITHDRAW_L1_SIGNALS.withdrawnValue] = withdrawnValue;
+  out[WITHDRAW_L1_SIGNALS.bridgedValue] = bridged.toString();
+  out[WITHDRAW_L1_SIGNALS.context] = context;
+  return out;
 }
 
 function payload(over: {
@@ -227,11 +240,12 @@ describe("PrivacyPoolRelayer (Mode-3, real service)", () => {
     expect(h.sdk.broadcastWithdrawal).not.toHaveBeenCalled();
   });
 
-  it("uses the real 10-signal layout: value at [3], context at [8], bridged value at [9]", async () => {
-    // A value at the OLD index [2] must NOT be read as withdrawnValue: put a
-    // large number at [2] but a below-min value at [3] and expect rejection.
+  it("uses the real 10-signal layout: value at [3], bridged value at [4], context at [9]", async () => {
+    // A value at index [2] (existingNullifierHash) must NOT be read as
+    // withdrawnValue: put a large number there but a below-min value at the real
+    // withdrawnValue index, and expect rejection.
     const s = signals("100");
-    s[2] = "999999999";
+    s[WITHDRAW_L1_SIGNALS.existingNullifierHash] = "999999999";
     const res = await service.handleRequest(
       payload({ publicSignals: s }),
       SOURCE_CHAIN,

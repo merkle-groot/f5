@@ -17,8 +17,8 @@ import { poseidon } from "maci-crypto/build/ts/hashing.js";
 describe("Starknet context binding", () => {
   it("poseidonFold is a left-fold of 2-input Poseidon", () => {
     const xs = [1n, 2n, 3n, 4n, 5n];
-    let acc = poseidon([xs[0], xs[1]]);
-    for (let i = 2; i < xs.length; i++) acc = poseidon([acc, xs[i]]);
+    let acc = poseidon([xs[0]!, xs[1]!]);
+    for (let i = 2; i < xs.length; i++) acc = poseidon([acc, xs[i]!]);
     expect(poseidonFold(xs)).toBe(acc);
   });
 

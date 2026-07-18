@@ -161,27 +161,12 @@ export class ContractInteractionsService implements ContractInteractions {
     withdrawalProof: WithdrawalProof,
     scope: Hash,
   ): Promise<TransactionResponse> {
+    // Thin alias: the merged pool exposes a single withdrawal entry point.
+    // Delegate so this path inherits the bridge-fee `msg.value` and the explicit
+    // relay gas limit rather than duplicating (and drifting from) `relay`.
     try {
-      const formattedProof = this.formatProof(withdrawalProof);
-
-      // get pool address from scope
-      const scopeData = await this.getScopeData(scope);
-
-      // The merged pool exposes a single withdrawal entry point: `relay`.
-      const { request } = await this.publicClient.simulateContract({
-        address: scopeData.poolAddress,
-        abi: IPrivacyPoolABI as Abi,
-        functionName: "relay",
-        account: this.account.address as Address,
-        args: [withdrawal, formattedProof],
-      });
-
-      return await this.executeTransaction(request);
+      return await this.relay(withdrawal, withdrawalProof, scope);
     } catch (error) {
-      console.error("Withdraw Error Details:", {
-        error,
-        accountAddress: this.account.address,
-      });
       throw new Error(
         `Failed to Withdraw: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
@@ -209,12 +194,23 @@ export class ContractInteractionsService implements ContractInteractions {
       // Relay is now processed directly on the pool; resolve it from the scope.
       const scopeData = await this.getScopeData(scope);
 
+      // The pool fronts the canonical bridge's L1->L2 message fee out of
+      // `msg.value` (PrivacyPool._bridge). OP-Stack messages ride on L1-derived
+      // gas and need nothing, but Starknet/StarkGate and Arbitrum charge a
+      // prepaid ETH fee — omitting it reverts with `InsufficientBridgeFee`.
+      // Compute exactly what the on-chain branch will demand for this destination.
+      const value = await this.bridgeMsgValue(
+        scopeData.assetAddress,
+        withdrawal.chainId,
+      );
+
       const { request } = await this.publicClient.simulateContract({
         address: scopeData.poolAddress,
         abi: IPrivacyPoolABI as Abi,
         functionName: "relay",
         account: this.account,
         args: [withdrawal, formattedProof],
+        value,
         // OP messenger sendMessage under-estimates via eth_estimateGas.
         gas: RELAY_GAS_LIMIT,
       });
@@ -226,6 +222,75 @@ export class ContractInteractionsService implements ContractInteractions {
         accountAddress: this.account.address,
       });
       throw error;
+    }
+  }
+
+  /**
+   * Required `msg.value` for a `relay()` to `destinationChainId`.
+   *
+   * Mirrors `PrivacyPool._bridge` exactly so the simulated value always clears the
+   * pool's `InsufficientBridgeFee` check, per {@link IEntrypoint.BridgeKind}:
+   *  - OpStack   — the note rides on L1-derived gas; nothing is prepaid (0).
+   *  - Arbitrum  — a retryable ticket prepays submission + L2 gas; ERC20 adds a
+   *                second (token) ticket.
+   *  - Starknet  — StarkGate charges a flat ETH fee for each of the two L1->L2
+   *                messages (the note message and the token deposit).
+   *
+   * The relayer fronts this from its own balance and is reimbursed by the relay
+   * fee bound into the note. An unsupported destination returns 0 and lets the
+   * pool surface its own `UnsupportedChain`.
+   *
+   * Public so the relayer can price the fronted fee into its quote (a destination
+   * that prepays an L1->L2 fee must be reimbursed through the relay fee, or the
+   * relayer bridges to Arbitrum/Starknet at a loss).
+   *
+   * @param assetAddress - The pool's asset (native sentinel or ERC20).
+   * @param destinationChainId - `withdrawal.chainId`, the L2 destination.
+   * @returns The ETH amount to attach as `msg.value`.
+   */
+  async bridgeMsgValue(
+    assetAddress: Address,
+    destinationChainId: bigint,
+  ): Promise<bigint> {
+    const config = (await this.publicClient.readContract({
+      address: this.entrypointAddress,
+      abi: IEntrypointABI as Abi,
+      functionName: "getBridgeConfig",
+      args: [destinationChainId, assetAddress],
+    })) as {
+      kind: number;
+      isSupported: boolean;
+      messageGasLimit: bigint;
+      messageMaxFeePerGas: bigint;
+      messageFee: bigint;
+      tokenGasLimit: bigint;
+      tokenMaxFeePerGas: bigint;
+      tokenFee: bigint;
+    };
+
+    // Let the pool revert with its own `UnsupportedChain` rather than guessing.
+    if (!config.isSupported) return 0n;
+
+    const isNative =
+      assetAddress.toLowerCase() === NATIVE_ASSET.toLowerCase();
+
+    // BridgeKind: 0 = OpStack, 1 = Arbitrum, 2 = Starknet.
+    switch (config.kind) {
+      case 0:
+        return 0n;
+      case 1: {
+        const messageFee =
+          config.messageFee +
+          config.messageGasLimit * config.messageMaxFeePerGas;
+        if (isNative) return messageFee;
+        const tokenFee =
+          config.tokenFee + config.tokenGasLimit * config.tokenMaxFeePerGas;
+        return messageFee + tokenFee;
+      }
+      case 2:
+        return config.messageFee + config.tokenFee;
+      default:
+        return 0n;
     }
   }
 

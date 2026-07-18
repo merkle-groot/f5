@@ -15,6 +15,10 @@
     "packages/sdk",
     "packages/relayer"
   ],
+  "scripts": {
+    "check:deployment": "bash ops/check-deployment.sh",
+    "check:deployment:onchain": "bash ops/check-deployment.sh --onchain"
+  },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^8.28.0",
     "@typescript-eslint/parser": "^8.28.0",

@@ -727,6 +727,7 @@ describe("AccountService", () => {
         withdrawn: 10n,
         spentNullifier: BigInt("11111") as Hash,
         newCommitment: BigInt("22222") as Hash,
+        newCommitmentL2: BigInt("922222") as Hash,
         blockNumber: 1000n,
         transactionHash: mockTxHash(1),
       };
@@ -735,6 +736,7 @@ describe("AccountService", () => {
         withdrawn: 20n,
         spentNullifier: BigInt("33333") as Hash,
         newCommitment: BigInt("44444") as Hash,
+        newCommitmentL2: BigInt("944444") as Hash,
         blockNumber: 1100n,
         transactionHash: mockTxHash(2),
       };
@@ -863,6 +865,7 @@ describe("AccountService", () => {
         withdrawn: 10n,
         spentNullifier: BigInt("44444") as Hash,
         newCommitment: BigInt("55555") as Hash,
+        newCommitmentL2: BigInt("955555") as Hash,
         blockNumber: 1100n,
         transactionHash: mockTxHash(2),
       };
@@ -1009,6 +1012,7 @@ describe("AccountService", () => {
         withdrawn: 10n,
         spentNullifier: spentNullifierHash, // Use the HASHED nullifier
         newCommitment: BigInt("5555555") as Hash,
+        newCommitmentL2: BigInt("95555555") as Hash,
         blockNumber: 1100n,
         transactionHash: mockTxHash(2),
       };

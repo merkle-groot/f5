@@ -187,11 +187,19 @@ Each entry represents a supported ERC-20 token (or native token).
 
 Returns a fee quote for a withdrawal, including dynamic feeBPS adjusted for gas costs.
 
+Pass `destinationChainId` (the chain the note is bridged to, i.e. `withdrawal.chainId`) so the quote
+also covers the L1→L2 message/gas fee the relayer fronts for that destination. It is **0 for
+OP-Stack** (the note rides on L1-derived gas) and **non-zero for Arbitrum/Starknet** (a retryable
+ticket / StarkGate deposit prepays L2 execution). The relayer reads this from the same on-chain
+bridge config the pool enforces (`ContractInteractionsService.bridgeMsgValue`), so quote and relay
+never drift. Omit it (or use an OP-Stack destination) and the fee is unchanged.
+
 ### Request Body
 
 ```json
 {
   "chainId": 11155111,
+  "destinationChainId": 421614,
   "amount": "1000000000000000000",
   "asset": "0xTokenAddress",
   "recipient": "0xRecipientAddress"

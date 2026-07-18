@@ -1,3 +1,9 @@
+// MUST be the first import. `config/index.ts` reads CONFIG_PATH at module-evaluation time (not
+// inside a function), and it is pulled in transitively by `./app.js` below — so loading .env any
+// later means the config file is chosen before .env exists. ESM evaluates imports in declaration
+// order, which is what makes this work.
+import "dotenv/config";
+
 import { app } from "./app.js";
 import { db } from "./providers/db.provider.js";
 import { testnetAspService } from "./services/index.js";

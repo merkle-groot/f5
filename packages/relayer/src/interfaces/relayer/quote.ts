@@ -1,6 +1,12 @@
 export interface QuotetBody {
-  /** Chain ID to process the request on */
+  /** Chain ID to process the request on (where the pool/relay lives, e.g. L1) */
   chainId: string | number;
+  /**
+   * Destination chain the note is bridged to (`withdrawal.chainId`). Optional:
+   * when set, the quote also covers the L1->L2 message/gas fee the relayer fronts
+   * for that destination (non-zero for Arbitrum/Starknet, zero for OP-Stack).
+   */
+  destinationChainId?: string | number;
   /** Potential balance to withdraw */
   amount: string;
   /** Asset address */

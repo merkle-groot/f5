@@ -7,6 +7,12 @@ interface QuoteFeeBPSParams {
   amountIn: bigint,
   baseFeeBPS: bigint,
   extraGas: boolean;
+  /**
+   * L1->L2 bridge fee (in native wei) the relayer fronts for the destination.
+   * Zero for OP-Stack; non-zero for Arbitrum/Starknet. Priced into the fee so the
+   * relayer is reimbursed for the fronted `msg.value`. Defaults to 0.
+   */
+  bridgeFeeWei?: bigint;
 };
 
 const NativeAddress = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
@@ -35,14 +41,15 @@ export class QuoteService {
     this.extraGasFundAmount = 600_000n;
   }
 
-  async netFeeBPSNative(baseFee: bigint, balance: bigint, nativeQuote: { num: bigint, den: bigint; }, gasPrice: bigint, extraGasUnits: bigint): Promise<bigint> {
+  async netFeeBPSNative(baseFee: bigint, balance: bigint, nativeQuote: { num: bigint, den: bigint; }, gasPrice: bigint, extraGasUnits: bigint, bridgeFeeWei: bigint = 0n): Promise<bigint> {
     const totalGasUnits = this.relayTxCost + extraGasUnits;
-    const nativeCosts = (1n * gasPrice * totalGasUnits);
+    // The fronted L1->L2 bridge fee is already a native amount; add it alongside gas costs.
+    const nativeCosts = (1n * gasPrice * totalGasUnits) + bridgeFeeWei;
     return baseFee + nativeQuote.den * 10_000n * nativeCosts / balance / nativeQuote.num;
   }
 
   async quoteFeeBPSNative(quoteParams: QuoteFeeBPSParams): Promise<QuoteFee> {
-    const { chainId, assetAddress, amountIn, baseFeeBPS, extraGas } = quoteParams;
+    const { chainId, assetAddress, amountIn, baseFeeBPS, extraGas, bridgeFeeWei = 0n } = quoteParams;
     const gasPrice = await web3Provider.getGasPrice(chainId);
 
     const EXTRA_GAS_AMOUNT = this.extraGasTxCost + this.extraGasFundAmount;
@@ -56,7 +63,7 @@ export class QuoteService {
       quote = await quoteProvider.quoteNativeTokenInERC20(chainId, assetAddress, amountIn);
     }
 
-    const feeBPS = await this.netFeeBPSNative(baseFeeBPS, amountIn, quote, gasPrice, extraGasUnits);
+    const feeBPS = await this.netFeeBPSNative(baseFeeBPS, amountIn, quote, gasPrice, extraGasUnits, bridgeFeeWei);
 
     return {
       feeBPS,

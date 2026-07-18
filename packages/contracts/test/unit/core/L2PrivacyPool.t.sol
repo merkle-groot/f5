@@ -177,8 +177,9 @@ contract L2PrivacyPoolTest is Test {
     uint256 _value,
     uint256 _root
   ) internal view returns (L2ProofLib.WithdrawProof memory _p) {
-    _p.pubSignals[0] = _value;
-    _p.pubSignals[1] = uint256(keccak256('nullifier')) % Constants.SNARK_SCALAR_FIELD;
+    // Signal layout must match L2ProofLib: [0]=nullifierHash, [1]=withdrawnValue.
+    _p.pubSignals[0] = uint256(keccak256('nullifier')) % Constants.SNARK_SCALAR_FIELD;
+    _p.pubSignals[1] = _value;
     _p.pubSignals[2] = _root;
     _p.pubSignals[3] = 1;
     _p.pubSignals[4] = uint256(keccak256(abi.encode(_w, _pool.SCOPE()))) % Constants.SNARK_SCALAR_FIELD;
@@ -199,7 +200,7 @@ contract L2PrivacyPoolTest is Test {
     assertEq(recipient.balance, 3.8 ether);
     assertEq(feeRecipient.balance, 0.2 ether);
     assertEq(nativePool.totalWithdrawn(), _value);
-    assertTrue(nativePool.nullifierHashes(_p.pubSignals[1]));
+    assertTrue(nativePool.nullifierHashes(_p.pubSignals[0]));
   }
 
   function test_WithdrawERC20ExitsThroughSafeTransfer() public {
@@ -399,7 +400,7 @@ contract L2PrivacyPoolTest is Test {
 
     vm.prank(relayer);
     nativePool.withdraw(_w, _p); // does not revert on UnknownStateRoot
-    assertTrue(nativePool.nullifierHashes(_p.pubSignals[1]));
+    assertTrue(nativePool.nullifierHashes(_p.pubSignals[0]));
   }
 
   function test_BackingCarriesAcrossWithdrawalsViaReceipts() public {
@@ -445,9 +446,16 @@ contract L2PrivacyPoolTest is Test {
     new L2PrivacyPool(Constants.NATIVE_ASSET, address(0), address(messenger), address(verifier), MAX_FEE_BPS);
   }
 
-  function test_ConstructorRejectsZeroMessenger() public {
-    vm.expectRevert(IL2PrivacyPool.ZeroAddress.selector);
-    new L2PrivacyPool(Constants.NATIVE_ASSET, l1Pool, address(0), address(verifier), MAX_FEE_BPS);
+  function test_ConstructorAllowsZeroMessengerButOpStackAuthFailsClosed() public {
+    // A zero messenger is permitted so bridge families that authenticate without one (Arbitrum,
+    // via address aliasing) can reuse this base. An OP-Stack pool built this way isn't unsafe: its
+    // messenger-based auth simply fails closed on every intake, so no note can ever be delivered.
+    L2PrivacyPool _pool =
+      new L2PrivacyPool(Constants.NATIVE_ASSET, l1Pool, address(0), address(verifier), MAX_FEE_BPS);
+    assertEq(address(_pool.MESSENGER()), address(0));
+
+    vm.expectRevert(IL2PrivacyPool.NotMessenger.selector);
+    _pool.deposit(1 ether, uint256(keccak256('x')));
   }
 
   function test_ConstructorRejectsZeroVerifier() public {

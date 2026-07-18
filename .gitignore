@@ -14,6 +14,15 @@ node_modules
 # Cursor rules files
 .cursorrules*
 
-# Ignore generated markdown notes/logs; keep README.md at any level
+# Ignore generated markdown notes/logs (keeps stray AI/agent scratch notes out of
+# the repo). Anything meant to be REAL documentation must be un-ignored below, or
+# git will silently drop it — including a brand-new page under docs/, which is a
+# trap: the existing docs/ pages only survive because they were committed before
+# this rule existed, and gitignore does not affect already-tracked files.
 *.md
 !README.md
+!CLAUDE.md
+!SECURITY.md
+!PROGRESS.md
+!FIXES.md
+!docs/**/*.md

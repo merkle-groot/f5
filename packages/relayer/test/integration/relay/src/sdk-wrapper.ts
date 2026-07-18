@@ -1,6 +1,6 @@
 import {
   bigintToHash,
-  calculateContext,
+  calculateRelayContext,
   Circuits,
   ContractInteractionsService,
   generateDepositSecrets,
@@ -11,11 +11,13 @@ import {
   hashPrecommitment,
   LeanIMTMerkleProof,
   MasterKeys,
+  NoteService,
   PrivacyPoolSDK,
+  RelayWithdrawal,
   Secret,
-  Withdrawal,
+  ShieldedAddress,
   WithdrawalProof,
-  WithdrawalProofInput
+  WithdrawL1ProofInput
 } from "@0xbow/privacy-pools-core-sdk";
 
 import { IChainContext } from "./chain.js";
@@ -134,9 +136,21 @@ export class SdkWrapper {
     return tx;
   }
 
-  async proveWithdrawal(
+  /**
+   * Mode-3 `withdrawL1`: spend an L1 note, bridge the net value, and deliver
+   * `C_dest` to the recipient's shielded address.
+   *
+   * This used to call the removed single-output `proveWithdrawal`, so the whole
+   * harness threw on every run. The Mode-3 proof needs three things the old one
+   * did not: the recipient's PUBLIC `(B, V)`, the ephemeral scalar binding the
+   * note, and `bridgedValue` (the net delivered to L2 after the relay fee).
+   */
+  async proveWithdrawalL1(
     withdrawAmount: bigint,
-    w: Withdrawal,
+    bridgedValue: bigint,
+    w: RelayWithdrawal,
+    recipient: ShieldedAddress,
+    ephemeralScalar: bigint,
     scope: bigint,
     label: bigint,
     oldNoteValue: bigint,
@@ -236,26 +250,37 @@ export class SdkWrapper {
       // console.log("✅ State Merkle Proof:", stateMerkleProof);
       // console.log("✅ ASP Merkle Proof:", aspMerkleProof);
 
-      // **Correctly Compute Context Hash**
-      const computedContext = calculateContext(w, scope as Hash);
+      // Mode-3 binds the DESTINATION chain into the context, so the relay shape
+      // is `{chainId, data}` and the context comes from `calculateRelayContext`.
+      const computedContext = calculateRelayContext(w, scope as Hash);
       console.log("🔹 Computed Context:", computedContext.toString());
 
-      // **Create Withdrawal Proof Input**
-      const proofInput: WithdrawalProofInput = {
+      // The destination note. `C_dest` folds the value in, so it must be built
+      // against the NET bridged value, not the gross withdrawn value.
+      const destNote = new NoteService().buildDestNote(
+        recipient,
+        bridgedValue,
+        ephemeralScalar,
+      );
+
+      const proofInput: WithdrawL1ProofInput = {
         context: BigInt(computedContext),
-        withdrawalAmount: withdrawAmount,
+        withdrawnValue: withdrawAmount,
+        bridgedValue,
         stateMerkleProof: stateMerkleProof,
         aspMerkleProof: aspMerkleProof,
         stateRoot: bigintToHash(stateRoot),
         stateTreeDepth: stateTreeDepth,
         aspRoot: bigintToHash(aspRoot),
         aspTreeDepth: aspTreeDepth,
+        spendingPublicKey: recipient.B,
+        sharedSecretX: destNote.sharedSecretX,
         newSecret: newSecret as Secret,
         newNullifier: newNullifier as Secret,
       };
 
-      console.log("🚀 Generating withdrawal proof...");
-      const proofPayload: WithdrawalProof = await this.sdk.proveWithdrawal(
+      console.log("🚀 Generating Mode-3 withdrawL1 proof...");
+      const proofPayload: WithdrawalProof = await this.sdk.proveWithdrawalL1(
         commitment,
         proofInput,
       );

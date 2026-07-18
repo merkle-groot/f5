@@ -77,7 +77,11 @@ export const zCommonConfig = z.object({
 // Default configuration schema
 export const zDefaultConfig = z.object({
   fee_receiver_address: zAddress,
-  signer_private_key: zPkey,
+  // Optional so the secret can live in RELAYER_PRIVATE_KEY instead. This file is a normal,
+  // committed config — a required key here forces the private key into version control, which is
+  // exactly how a live signer key ended up in this repo's history. Env wins; see
+  // `getSignerPrivateKey`, which throws if neither source provides one.
+  signer_private_key: zPkey.optional(),
   entrypoint_address: zAddress,
 });
 

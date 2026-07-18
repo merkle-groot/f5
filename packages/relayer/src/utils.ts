@@ -16,6 +16,7 @@ import {
   RelayRequestBody,
   WithdrawPublicSignals,
 } from "./interfaces/relayer/request.js";
+import { WITHDRAW_L1_SIGNALS } from "@0xbow/privacy-pools-core-sdk";
 import { RelayDataAbi } from "./types/abi.types.js";
 import { getFeeReceiverAddress, getSignerPrivateKey } from "./config/index.js";
 import { privateKeyToAccount } from "viem/accounts";
@@ -70,20 +71,22 @@ export function parseSignals(
       details: `Signals ${badSignals.join(", ")} are undefined`,
     });
   }
-  /// Mode-3 `withdrawL1` layout (matches the SDK's WITHDRAW_L1_SIGNALS). Circom
-  /// emits circuit outputs first: the L1 change note AND the bridged C_dest lead,
-  /// so `withdrawnValue`/`context` are shifted vs the old single-output circuit.
+  /// Indices come from the SDK's `WITHDRAW_L1_SIGNALS` rather than being
+  /// rewritten here. Hardcoding them is exactly how the layout drifted from the
+  /// circuit before: `bridgedValue` is declared second in the template, so it
+  /// sits at index 4 and shifts `stateRoot`..`context` down by one.
+  const at = (index: number) => BigInt(signals[index]!);
   return {
-    newCommitmentHashL1: BigInt(signals[0]!), // [0] L1 change-note commitment
-    newCommitmentHashL2: BigInt(signals[1]!), // [1] C_dest (bridged L2 note)
-    existingNullifierHash: BigInt(signals[2]!), // [2] spent note nullifier
-    withdrawnValue: BigInt(signals[3]!), // [3]
-    stateRoot: BigInt(signals[4]!), // [4]
-    stateTreeDepth: BigInt(signals[5]!), // [5]
-    ASPRoot: BigInt(signals[6]!), // [6]
-    ASPTreeDepth: BigInt(signals[7]!), // [7]
-    context: BigInt(signals[8]!), // [8]
-    bridgedValue: BigInt(signals[9]!), // [9] net L2 delivery value
+    newCommitmentHashL1: at(WITHDRAW_L1_SIGNALS.newCommitmentHashL1),
+    newCommitmentHashL2: at(WITHDRAW_L1_SIGNALS.newCommitmentHashL2),
+    existingNullifierHash: at(WITHDRAW_L1_SIGNALS.existingNullifierHash),
+    withdrawnValue: at(WITHDRAW_L1_SIGNALS.withdrawnValue),
+    bridgedValue: at(WITHDRAW_L1_SIGNALS.bridgedValue),
+    stateRoot: at(WITHDRAW_L1_SIGNALS.stateRoot),
+    stateTreeDepth: at(WITHDRAW_L1_SIGNALS.stateTreeDepth),
+    ASPRoot: at(WITHDRAW_L1_SIGNALS.aspRoot),
+    ASPTreeDepth: at(WITHDRAW_L1_SIGNALS.aspTreeDepth),
+    context: at(WITHDRAW_L1_SIGNALS.context),
   };
 }
 

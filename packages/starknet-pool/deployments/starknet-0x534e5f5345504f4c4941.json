@@ -1,0 +1,17 @@
+{
+  "chainId": "0x534e5f5345504f4c4941",
+  "contracts": [
+    {
+      "name": "Groth16VerifierBN254",
+      "address": "0x0605d599d6c650bc93f60a0ebc4075e1c968f300645b50d27e3b8ed8fd6091e3",
+      "classHash": "0x048a340e310e3432ae036474ad250c1fcc2bc6ff4da860b87236f985f598ee2e"
+    },
+    {
+      "name": "StarknetPrivacyPool",
+      "address": "0x053cc08c203ce5935aeef9674a1afcff74bc4d7acc69e9a1146f9b14df8647a0",
+      "classHash": "0x0716bf66c476e43ca194c6ccb72da7b579272327a1a17cab63cc7ca11686889b",
+      "asset": "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
+      "l1Pool": "0xf913ab5e2b0dd32ba2ff4969962919834f954c10"
+    }
+  ]
+}

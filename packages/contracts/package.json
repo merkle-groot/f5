@@ -6,7 +6,7 @@
   "license": "Apache-2.0",
   "author": "Wonderland",
   "scripts": {
-    "assignrole:sepolia": "bash -c 'source .env && forge script script/Entrypoint.s.sol:AssignRole --account $SEPOLIA_DEPLOYER_NAME --rpc-url $SEPOLIA_RPC -vv $0'",
+    "assignrole:sepolia": "bash -c 'source .env && forge script script/Entrypoint.s.sol:AssignRole --account DEPLOYER --sender $OWNER_ADDRESS --rpc-url $ETHEREUM_SEPOLIA_RPC -vv $0'",
     "build": "forge build",
     "build:optimized": "FOUNDRY_PROFILE=optimized forge build",
     "coverage": "forge coverage --report summary --report lcov --match-path 'test/unit/*'",
@@ -17,8 +17,13 @@
     "deploy:protocol:mainnet": "bash -c 'source .env && forge script script/Deploy.s.sol:EthereumMainnet --verify --account DEPLOYER --rpc-url $ETHEREUM_MAINNET_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'",
     "deploy:protocol:sepolia": "bash -c 'source .env && forge script script/Deploy.s.sol:EthereumSepolia --account DEPLOYER --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'",
     "verify:protocol:sepolia": "bash -c 'source .env && forge script script/Deploy.s.sol:EthereumSepolia --verify --account DEPLOYER --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'",
-    "deploy:l2:op-sepolia": "bash -c 'source .env && forge script script/DeployL2.s.sol:DeployL2Testnet --account DEPLOYER --rpc-url $OP_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'",
-    "configure:bridge:op-sepolia": "bash -c 'source .env && forge script script/ConfigureOpStackBridge.s.sol:ConfigureOpStackBridge --account DEPLOYER --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'",
+    "deploy:l2:op-sepolia": "bash -c 'source .env && L2_TARGET=OP_SEPOLIA forge script script/DeployL2.s.sol:DeployL2Testnet --account DEPLOYER --rpc-url $OP_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'",
+    "configure:bridge:op-sepolia": "bash -c 'source .env && L2_TARGET=OP_SEPOLIA forge script script/ConfigureOpStackBridge.s.sol:ConfigureOpStackBridge --account DEPLOYER --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'",
+    "deploy:l2:base-sepolia": "bash -c 'source .env && L2_TARGET=BASE_SEPOLIA forge script script/DeployL2.s.sol:DeployL2Testnet --account DEPLOYER --rpc-url $BASE_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'",
+    "configure:bridge:base-sepolia": "bash -c 'source .env && L2_TARGET=BASE_SEPOLIA forge script script/ConfigureOpStackBridge.s.sol:ConfigureOpStackBridge --account DEPLOYER --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'",
+    "configure:bridge:starknet-sepolia": "bash -c 'source .env && L2_TARGET=STARKNET_SEPOLIA forge script script/ConfigureStarknetBridge.s.sol:ConfigureStarknetBridge --account DEPLOYER --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'",
+    "deploy:l2:arb-sepolia": "bash -c 'source .env && L2_TARGET=ARB_SEPOLIA forge script script/DeployL2Arbitrum.s.sol:DeployL2Arbitrum --account DEPLOYER --rpc-url $ARB_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'",
+    "configure:bridge:arb-sepolia": "bash -c 'source .env && L2_TARGET=ARB_SEPOLIA forge script script/ConfigureArbitrumBridge.s.sol:ConfigureArbitrumBridge --account DEPLOYER --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'",
     "lint:check": "yarn lint:sol && forge fmt --check",
     "lint:fix": "sort-package-json && forge fmt && yarn lint:sol --fix",
     "lint:natspec": "npx @defi-wonderland/natspec-smells --config natspec-smells.config.js",
@@ -30,10 +35,10 @@
     "test:symbolic": "echo 'update this yarn script when symbolic testing is implemented'",
     "test:unit": "forge test --match-contract Unit -vvv",
     "test:unit:deep": "FOUNDRY_FUZZ_RUNS=5000 yarn test:unit",
-    "updateroot:sepolia": "bash -c 'source .env && forge script script/Entrypoint.s.sol:UpdateRoot --ffi --account $SEPOLIA_POSTMAN --rpc-url $SEPOLIA_RPC -vv $0'",
+    "updateroot:sepolia": "bash -c 'source .env && forge script script/Entrypoint.s.sol:UpdateRoot --ffi --account DEPLOYER --sender $POSTMAN_ADDRESS --rpc-url $ETHEREUM_SEPOLIA_RPC -vv $0'",
     "update:l1:root:sepolia": "bash -c 'source .env && forge script script/UpdateL1.s.sol:UpdateL1Root --account $SEPOLIA_POSTMAN --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $POSTMAN_ADDRESS --slow -vv $0'",
     "update:l1:pool:sepolia": "bash -c 'source .env && forge script script/UpdateL1.s.sol:UpdateL1PoolConfiguration --account DEPLOYER --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $OWNER_ADDRESS --slow -vv $0'",
-    "bridge:funds:op-sepolia": "bash -c 'source .env && forge script script/BridgeFunds.s.sol:BridgeFundsToOpStack --account DEPLOYER --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'"
+    "bridge:funds:op-sepolia": "bash -c 'source .env && L2_TARGET=OP_SEPOLIA forge script script/BridgeFunds.s.sol:BridgeFundsToOpStack --account DEPLOYER --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'"
   },
   "lint-staged": {
     "*.{js,css,md,ts,sol}": "forge fmt",

@@ -200,6 +200,41 @@ yarn configure:bridge:op-sepolia --broadcast
 The bridge configuration is native-ETH only. ERC20 mode needs a second configuration with the
 remote L2 token and the corresponding L1 token bridge parameters.
 
+**Base Sepolia destination pool:**
+
+Base is an OP Stack chain, so it reuses the same scripts — only the `BASE_SEPOLIA_*` messenger/bridge
+addresses and chain id differ. Set `L2_TARGET=BASE_SEPOLIA`, fill the `BASE_SEPOLIA_*` block from
+`.env.testnet.example`, then:
+
+```bash
+yarn deploy:l2:base-sepolia --broadcast
+```
+
+Set `BASE_SEPOLIA_L2_POOL_ADDRESS` to the emitted destination pool address and configure the L1 bridge
+(the configure step runs against Sepolia L1, still with `L2_TARGET=BASE_SEPOLIA`):
+
+```bash
+yarn configure:bridge:base-sepolia --broadcast
+```
+
+**Starknet Sepolia destination pool:**
+
+The Cairo pool is deployed with the `starknet-pool` package tooling (scarb/starkli), not Foundry. Its
+constructor binds the L1 pool address (`l1_pool`, immutable) — deploy it against the **current** L1
+pool, or `receive_note` will reject every note. Once it exists, set `L2_TARGET=STARKNET_SEPOLIA`, fill
+the `STARKNET_SEPOLIA_*` block (Starknet Core + StarkGate ETH bridge addresses, the pool felt, the
+`sn_keccak("receive_note")` handler selector, and the prepaid message/token fees), then wire the
+Entrypoint's bridge config for Starknet:
+
+```bash
+yarn configure:bridge:starknet-sepolia --broadcast
+```
+
+Without this the pool's `_bridgeStarknet` path is unreachable — `_bridge` reverts `UnsupportedChain`.
+Both the message fee and the token fee are prepaid in ETH from the withdrawal's `msg.value`; the ETH
+value itself rides StarkGate's token-less `deposit` overload (native ETH uses StarkGate's own
+sentinel, not this repo's `NATIVE_ASSET`).
+
 **Gnosis Chiado:**
 ```bash
 yarn deploy:protocol:chiado --broadcast

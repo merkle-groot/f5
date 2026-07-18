@@ -1,8 +1,8 @@
 import { poseidon } from "maci-crypto/build/ts/hashing.js";
 import { Hash, Secret } from "../types/commitment.js";
-import { Hex, bytesToNumber } from "viem";
-import { mnemonicToAccount } from "viem/accounts";
+import { Hex } from "viem";
 import { mapLimit } from "async";
+import { generateMasterKeys } from "../crypto.js";
 import { DataService } from "./data.service.js";
 import {
   AccountCommitment,
@@ -89,16 +89,13 @@ export class AccountService {
     try {
       this.logger.debug("Initializing account with mnemonic");
 
-      const masterNullifierSeed = bytesToNumber(
-        mnemonicToAccount(mnemonic, { accountIndex: 0 }).getHdKey().privateKey!
-      );
-
-      const masterSecretSeed = bytesToNumber(
-        mnemonicToAccount(mnemonic, { accountIndex: 1 }).getHdKey().privateKey!
-      );
-
-      const masterNullifier = poseidon([BigInt(masterNullifierSeed)]) as Secret;
-      const masterSecret = poseidon([BigInt(masterSecretSeed)]) as Secret;
+      // Delegate — do NOT re-implement the derivation here. This used to carry
+      // its own copy, which (like `generateMasterKeys` before it) ran the 32-byte
+      // HD key through viem's `bytesToNumber`, silently rounding a 256-bit key to
+      // a 53-bit double. Two copies of a derivation is two chances to get it
+      // wrong, and the copies disagreeing means recovered notes silently stop
+      // matching the ones a deposit created.
+      const { masterNullifier, masterSecret } = generateMasterKeys(mnemonic);
 
       return {
         masterKeys: [masterNullifier, masterSecret],

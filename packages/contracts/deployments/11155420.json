@@ -3,18 +3,18 @@
   "contracts": [
     {
       "name": "L2WithdrawalVerifier",
-      "address": "0xeeed6485a583d197f2f5805ade7ec6ecbcda833d",
-      "deployer": "0x0eb4d30c3aea7beb5ce17c1533cefe755ec807e2",
-      "deploymentBlock": 46033723
+      "address": "0x319413d62896b35C94EF344B2ca298e8F7fa91aA",
+      "deployer": "0x0eB4d30c3AeA7Beb5ce17c1533cefE755EC807e2",
+      "deploymentBlock": 46219109
     },
     {
       "name": "L2PrivacyPool",
-      "address": "0xfbba1f089fc8e48559b52eb09ff1b07b943ab507",
-      "deployer": "0x0eb4d30c3aea7beb5ce17c1533cefe755ec807e2",
-      "deploymentBlock": 46033724,
-      "scope": 8383131592542634367180422738258337301671899119068926705702823907013257035311,
-      "asset": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-      "l1Pool": "0x8d508e422ed2bc102ba364875d2d83c172dc2288"
+      "address": "0x002f4910DDFA5d081c3612fc88d8AF9F92Cd97A2",
+      "deployer": "0x0eB4d30c3AeA7Beb5ce17c1533cefE755EC807e2",
+      "deploymentBlock": 46219109,
+      "scope": 2779217028024980199887951214317595398435931925920130599911527056472364507972,
+      "asset": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+      "l1Pool": "0xf913AB5e2b0dD32ba2ff4969962919834f954c10"
     }
   ]
 }

@@ -21,6 +21,62 @@ const entrypointAbi = [{
 
 const aspPostmanRole = keccak256(stringToHex("ASP_POSTMAN"));
 
+/**
+ * Blocks per `eth_getLogs` window.
+ *
+ * Public RPCs cap the range (Infura rejects >10k with "range N exceeds limit of 10000"). Sweeping
+ * a pool's whole history in one call is a time bomb: it works right after deploy, then fails
+ * forever once the chain advances past the cap — taking every ASP proof, and so every withdrawal,
+ * down with it. Chunk instead.
+ */
+const LOG_CHUNK_BLOCKS = BigInt(process.env.LOG_CHUNK_BLOCKS ?? "9000");
+
+/**
+ * Blocks re-scanned on every refresh. The cursor must trail the chain head: parking it exactly at
+ * the head would permanently miss any event a reorg reshuffles into a block we already passed.
+ */
+const REORG_BUFFER = 16n;
+
+/** One `Deposited` window. Also the source of the cached log type, so `args` survives inference. */
+function fetchDeposited(
+  client: ReturnType<typeof web3Provider.client>,
+  address: `0x${string}`,
+  fromBlock: bigint,
+  toBlock: bigint,
+) {
+  return client.getLogs({ address, event: depositedEvent, fromBlock, toBlock });
+}
+type DepositedLogs = Awaited<ReturnType<typeof fetchDeposited>>;
+
+/** Split [fromBlock, head] into windows the RPC will actually accept. */
+function blockRanges(fromBlock: bigint, head: bigint) {
+  const ranges: { fromBlock: bigint; toBlock: bigint }[] = [];
+  for (let start = fromBlock; start <= head; start += LOG_CHUNK_BLOCKS + 1n) {
+    ranges.push({ fromBlock: start, toBlock: start + LOG_CHUNK_BLOCKS > head ? head : start + LOG_CHUNK_BLOCKS });
+  }
+  return ranges;
+}
+
+/**
+ * Retry a transient RPC failure with backoff.
+ *
+ * Public nodes answer `-32603 service temporarily unavailable` under load. This poller is the only
+ * source of ASP proofs, and an ASP proof gates every withdrawal — so a momentary blip must degrade
+ * into a retry, never into a failed refresh (and certainly never into a dead process).
+ */
+async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
+    }
+  }
+  throw lastError;
+}
+
 export type AspProof = { root: string; depth: number; proof: { index: number; siblings: string[]; root: string } };
 
 /** Testnet-only ASP: mirrors every configured pool's deposit labels into Entrypoint. */
@@ -28,14 +84,26 @@ export class TestnetAspService {
   private readonly enabled = process.env.TESTNET_ASP_MODE === "true";
   private readonly trees = new Map<number, LeanIMT<bigint>>();
   private refreshing = new Map<number, Promise<void>>();
+  /** Per-chain incremental log cache: the accumulated logs plus each pool's scan cursor. */
+  private readonly logCache = new Map<number, { logs: DepositedLogs; cursors: Map<string, bigint> }>();
 
   isEnabled() { return this.enabled; }
 
   start() {
     if (!this.enabled) return;
     const interval = Number(process.env.TESTNET_ASP_POLL_MS ?? 10_000);
-    for (const chain of CONFIG.chains) void this.refresh(chain.chain_id);
-    setInterval(() => { for (const chain of CONFIG.chains) void this.refresh(chain.chain_id); }, interval);
+    // A rejected refresh must not become an unhandled rejection: this runs detached from any
+    // request, so Node would take the whole relayer down over one transient RPC blip. Log and
+    // let the next tick retry.
+    const tick = () => {
+      for (const chain of CONFIG.chains) {
+        this.refresh(chain.chain_id).catch((error) => {
+          console.warn(`[testnet-asp] refresh failed for chain ${chain.chain_id}:`, error instanceof Error ? error.message : error);
+        });
+      }
+    };
+    tick();
+    setInterval(tick, interval);
   }
 
   async refresh(chainId: number): Promise<void> {
@@ -50,12 +118,41 @@ export class TestnetAspService {
   private async refreshInternal(chainId: number) {
     const chain = CONFIG.chains.find((item) => item.chain_id === chainId);
     if (!chain || chain.asp_pools.length === 0 || !chain.entrypoint_address) return;
-    const logs = (await Promise.all(chain.asp_pools.map((pool) => web3Provider.client(chainId).getLogs({
-      address: pool.pool_address,
-      event: depositedEvent,
-      fromBlock: pool.start_block,
-      toBlock: "latest",
-    })))).flat().sort((a, b) => Number(a.blockNumber - b.blockNumber) || Number((a.logIndex ?? 0) - (b.logIndex ?? 0)));
+    const client = web3Provider.client(chainId);
+    const head = await withRetry(() => client.getBlockNumber());
+
+    // Incremental: this poller runs every 10s, and re-sweeping each pool's whole history every
+    // tick is a request storm against a rate-limited node (and how we hit "service temporarily
+    // unavailable"). Keep the logs and only fetch forward from each pool's own cursor.
+    let entry = this.logCache.get(chainId);
+    if (!entry) {
+      entry = { logs: [], cursors: new Map() };
+      this.logCache.set(chainId, entry);
+    }
+    const seen = new Set(entry.logs.map((log) => `${log.transactionHash}:${log.logIndex}`));
+
+    for (const pool of chain.asp_pools) {
+      const poolKey = pool.pool_address.toLowerCase();
+      const fromBlock = entry.cursors.get(poolKey) ?? pool.start_block;
+      // Deliberately serial: firing every window at once trips public-RPC rate limits.
+      for (const range of blockRanges(fromBlock, head)) {
+        const fresh = await withRetry(() => fetchDeposited(client, pool.pool_address, range.fromBlock, range.toBlock));
+        // The trailing reorg window is re-scanned each tick, so logs repeat.
+        for (const log of fresh) {
+          const id = `${log.transactionHash}:${log.logIndex}`;
+          if (seen.has(id)) continue;
+          seen.add(id);
+          entry.logs.push(log);
+        }
+      }
+      // Trail the head: parking the cursor at it would permanently miss anything a reorg
+      // reshuffles into a block we already passed.
+      const next = head > REORG_BUFFER ? head - REORG_BUFFER : 0n;
+      entry.cursors.set(poolKey, next > fromBlock ? next : fromBlock);
+    }
+
+    const logs = [...entry.logs].sort((a, b) =>
+      Number(a.blockNumber - b.blockNumber) || Number((a.logIndex ?? 0) - (b.logIndex ?? 0)));
     const labels = logs.map((log) => log.args._label).filter((label): label is bigint => label !== undefined);
     if (labels.length === 0) return;
     const tree = new LeanIMT((left, right) => poseidon([left, right]));

@@ -113,8 +113,17 @@ export interface WithdrawL2ProofInput {
 }
 
 /**
- * Public-signal indices for `withdrawL1` (circom emits circuit outputs first).
- * Documented so consumers read the right field without re-deriving order.
+ * Public-signal indices for `withdrawL1`. MUST match `ProofLib.sol`.
+ *
+ * Circom derives this order from the TEMPLATE's signal DECLARATION order —
+ * outputs first, then inputs — NOT from the order listed in `component main
+ * {public [...]}`. The `main` list happens to name `bridgedValue` last, but the
+ * template declares it second (right after `withdrawnValue`), so it lands at
+ * index 4 and shifts `stateRoot`..`context` down by one.
+ *
+ * Verified against `packages/circuits/build/withdrawL1/withdrawL1.sym`, which is
+ * the ground truth; `signalOrder.test.ts` re-derives it from that artifact on
+ * every run so this constant cannot silently drift from the circuit again.
  */
 export const WITHDRAW_L1_SIGNALS = {
   newCommitmentHashL1: 0,
@@ -122,12 +131,12 @@ export const WITHDRAW_L1_SIGNALS = {
   newCommitmentHashL2: 1,
   existingNullifierHash: 2,
   withdrawnValue: 3,
-  stateRoot: 4,
-  stateTreeDepth: 5,
-  aspRoot: 6,
-  aspTreeDepth: 7,
-  context: 8,
-  bridgedValue: 9,
+  bridgedValue: 4,
+  stateRoot: 5,
+  stateTreeDepth: 6,
+  aspRoot: 7,
+  aspTreeDepth: 8,
+  context: 9,
 } as const;
 
 /**

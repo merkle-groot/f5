@@ -370,17 +370,18 @@ contract MergedFlowTest is Test {
     IPrivacyPool.Withdrawal memory _w,
     uint256 _withdrawnValue
   ) internal view returns (ProofLib.WithdrawProof memory _p) {
+    // Signal layout must match ProofLib (the contract's source of truth).
+    IPrivacyPool.RelayData memory _data = abi.decode(_w.data, (IPrivacyPool.RelayData));
     _p.pubSignals[0] = uint256(keccak256('newL1')) % Constants.SNARK_SCALAR_FIELD; // new L1 change note
     _p.pubSignals[1] = uint256(keccak256('newL2')) % Constants.SNARK_SCALAR_FIELD; // C_dest
     _p.pubSignals[2] = uint256(keccak256('nullifier')) % Constants.SNARK_SCALAR_FIELD; // existing nullifier
     _p.pubSignals[3] = _withdrawnValue; // withdrawn value
-    _p.pubSignals[4] = _pool.currentRoot(); // state root (known after deposit)
-    _p.pubSignals[5] = 1; // state tree depth
-    _p.pubSignals[6] = registry.latestRoot(); // ASP root
-    _p.pubSignals[7] = 1; // ASP tree depth
-    _p.pubSignals[8] = uint256(keccak256(abi.encode(_w, _pool.SCOPE()))) % Constants.SNARK_SCALAR_FIELD; // context
-    IPrivacyPool.RelayData memory _data = abi.decode(_w.data, (IPrivacyPool.RelayData));
-    _p.pubSignals[9] = _withdrawnValue - ((_withdrawnValue * _data.relayFeeBPS) / 10_000); // net bridged value
+    _p.pubSignals[4] = _withdrawnValue - ((_withdrawnValue * _data.relayFeeBPS) / 10_000); // net bridged value
+    _p.pubSignals[5] = _pool.currentRoot(); // state root (known after deposit)
+    _p.pubSignals[6] = 1; // state tree depth
+    _p.pubSignals[7] = registry.latestRoot(); // ASP root
+    _p.pubSignals[8] = 1; // ASP tree depth
+    _p.pubSignals[9] = uint256(keccak256(abi.encode(_w, _pool.SCOPE()))) % Constants.SNARK_SCALAR_FIELD; // context
   }
 
   function test_NativeRelayBridgesOnceAndPaysFeeOnce() public {
@@ -474,9 +475,8 @@ contract MergedFlowTest is Test {
 
     IPrivacyPool.Withdrawal memory _w = _buildWithdrawal(500);
     _w.chainId = 9999; // not configured
+    // _buildProof binds context over this (already-mutated) withdrawal.
     ProofLib.WithdrawProof memory _p = _buildProof(nativePool, _w, 1 ether);
-    // recompute context for the mutated withdrawal
-    _p.pubSignals[8] = uint256(keccak256(abi.encode(_w, nativePool.SCOPE()))) % Constants.SNARK_SCALAR_FIELD;
 
     vm.prank(relayer);
     vm.expectRevert(IPrivacyPool.UnsupportedChain.selector);

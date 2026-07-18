@@ -12,8 +12,20 @@ import {DataError} from "../errors/data.error.js";
 import {ErrorCode} from "../errors/base.error.js";
 
 // Event signatures from the contract
-const DEPOSIT_EVENT = parseAbiItem('event Deposited(address indexed _depositor, uint256 _commitment, uint256 _label, uint256 _value, uint256 _merkleRoot)');
-const WITHDRAWAL_EVENT = parseAbiItem('event Withdrawn(address indexed _processooor, uint256 _value, uint256 _spentNullifier, uint256 _newCommitment)');
+// NOTE: the 5th field is the PRECOMMITMENT, not a merkle root. It was previously
+// named `_merkleRoot` here, which is a lie about the contract's event
+// (`IPrivacyPool.Deposited(..., uint256 _precommitmentHash)`). Decoding survived
+// only because topic0 hashes param TYPES, not names, and the position happened to
+// line up. Note recovery from a mnemonic matches on exactly this field, so a
+// well-meaning "fix" of the name in one place would silently break it.
+const DEPOSIT_EVENT = parseAbiItem('event Deposited(address indexed _depositor, uint256 _commitment, uint256 _label, uint256 _value, uint256 _precommitmentHash)');
+// Mode-3 shape. This previously read
+// `Withdrawn(address indexed _processooor, uint256, uint256, uint256)` — the
+// pre-Mode-3 event. The parameter TYPES differ, so `topic0` differed, so
+// `getWithdrawals` silently matched NOTHING and returned an empty array on every
+// call. `AccountService` reconstructs spent state from these events, so it was
+// treating spent notes as unspent. Pinned to the contract by `eventAbis.spec.ts`.
+const WITHDRAWAL_EVENT = parseAbiItem('event Withdrawn(uint256 _newCommitmentHashL1, uint256 _newComitmentHashL2, uint256 _value, uint256 _spentNullifier)');
 const RAGEQUIT_EVENT = parseAbiItem('event Ragequit(address indexed _ragequitter, uint256 _commitment, uint256 _label, uint256 _value)');
 
 // Mode-3 (Cutout) note-delivery events.
@@ -136,7 +148,7 @@ export class DataService {
               _commitment?: bigint;
               _label?: bigint;
               _value?: bigint;
-              _merkleRoot?: bigint;
+              _precommitmentHash?: bigint;
             };
             blockNumber?: bigint;
             transactionHash?: Hex;
@@ -151,7 +163,7 @@ export class DataService {
             _commitment: commitment,
             _label: label,
             _value: value,
-            _merkleRoot: precommitment,
+            _precommitmentHash: precommitment,
           } = typedLog.args;
 
           if (
@@ -245,9 +257,12 @@ export class DataService {
         try {
           const typedLog = log as {
             args?: {
+              _newCommitmentHashL1?: bigint;
+              // The contract's own spelling — `_newComitmentHashL2`, one `m`.
+              // Matching it is not optional; viem keys decoded args by ABI name.
+              _newComitmentHashL2?: bigint;
               _value?: bigint;
               _spentNullifier?: bigint;
-              _newCommitment?: bigint;
             };
             blockNumber?: bigint;
             transactionHash?: Hex;
@@ -258,9 +273,10 @@ export class DataService {
           }
 
           const {
+            _newCommitmentHashL1: newCommitment,
+            _newComitmentHashL2: newCommitmentL2,
             _value: value,
             _spentNullifier: spentNullifier,
-            _newCommitment: newCommitment,
           } = typedLog.args;
 
           if (
@@ -268,6 +284,7 @@ export class DataService {
             value === null ||
             !spentNullifier ||
             !newCommitment ||
+            newCommitmentL2 === undefined ||
             !typedLog.blockNumber ||
             !typedLog.transactionHash
           ) {
@@ -277,7 +294,10 @@ export class DataService {
           return {
             withdrawn: value,
             spentNullifier: spentNullifier as Hash,
+            // The L1 change note — the leaf the pool inserts, and the one that
+            // continues the account. `C_dest` is bridged, not inserted on L1.
             newCommitment: newCommitment as Hash,
+            newCommitmentL2: newCommitmentL2 as Hash,
             blockNumber: BigInt(typedLog.blockNumber),
             transactionHash: typedLog.transactionHash,
           };

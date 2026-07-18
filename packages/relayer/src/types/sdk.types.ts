@@ -16,4 +16,9 @@ export interface SdkProviderInterface {
     scope: bigint,
     chainId: number,
   ): Promise<{ poolAddress: Address; assetAddress: Address }>;
+  bridgeMsgValue(
+    processingChainId: number,
+    assetAddress: Address,
+    destinationChainId: bigint,
+  ): Promise<bigint>;
 }

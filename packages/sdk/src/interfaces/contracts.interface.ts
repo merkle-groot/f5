@@ -48,6 +48,16 @@ export interface ContractInteractions {
     scope: Hash,
   ): Promise<TransactionResponse>;
 
+  /**
+   * The `msg.value` a `relay()` to `destinationChainId` must attach to cover the
+   * canonical bridge's L1->L2 message/gas fee (0 for OP-Stack, non-zero for
+   * Arbitrum/Starknet). The relayer uses this to price the fronted fee into its quote.
+   */
+  bridgeMsgValue(
+    assetAddress: Address,
+    destinationChainId: bigint,
+  ): Promise<bigint>;
+
   ragequit(
     commitmentProof: CommitmentProof,
     privacyPoolAddress: Address,
