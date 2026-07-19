@@ -1,5 +1,9 @@
 import { Router } from "express";
 import {
+  destinationActivateHandler,
+  destinationDetailsHandler,
+  destinationWithdrawHandler,
+  listDestinationsHandler,
   relayerDetailsHandler,
   relayQuoteHandler,
   relayRequestHandler,
@@ -30,6 +34,13 @@ relayerRouter.post("/quote", [
 ]);
 
 relayerRouter.get("/asp/proof/:label", (req, res, next) => { void testnetAspProofHandler(req, res).catch(next); });
+
+// Destination (L2 pool) writes. These were previously signed by the app server; it
+// now proxies here so the relayer is the only component holding keys.
+relayerRouter.get("/destinations", listDestinationsHandler);
+relayerRouter.get("/destinations/:key", destinationDetailsHandler);
+relayerRouter.post("/destinations/:key/activate", destinationActivateHandler);
+relayerRouter.post("/destinations/:key/withdraw", destinationWithdrawHandler);
 
 
 export { relayerRouter };

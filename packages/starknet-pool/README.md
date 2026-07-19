@@ -6,7 +6,7 @@ Destination-side Cairo shielded pool — the Starknet analog of `packages/contra
 
 ## Layout
 
-- `src/pool.cairo` — the pool contract (`StarknetPrivacyPool`): `receive_note` l1_handler intake, backing invariant, LeanIMT, `withdraw` with Poseidon `context` + Garaga proof verify.
+- `src/pool.cairo` — the pool contract (`StarknetPrivacyPool`): StarkGate `on_receive` intake after token credit, backing invariant, LeanIMT, and `withdraw` with Poseidon `context` + Garaga proof verification.
 - `src/hashing.cairo` — `poseidon_fold`, the 2-input BN254 Poseidon left-fold used for `context`/`scope`.
 - `src/interfaces.cairo` — pool + minimal ERC20 interfaces; the flattened `Withdrawal`.
 - `src/groth16_verifier*.cairo` — the Garaga-generated withdrawL2 BN254 verifier (proven in the spike).
@@ -19,7 +19,7 @@ Build: `scarb build`. Test: `snforge test`. Pinned scarb 2.16.1 / starknet-found
 
 - ✅ Package builds; both contract classes emit (`StarknetPrivacyPool` + `Groth16VerifierBN254`).
 - ✅ Poseidon parity: `poseidon_hash_2` == circomlib LeanIMT root (`tests/poseidon_parity.cairo`).
-- ✅ **Full-flow withdraw** (`tests/full_flow.cairo`, fork test): L1 `receive_note` intake (×4 leaves) →
+- ✅ **Full-flow withdraw** (`tests/full_flow.cairo`, fork test): StarkGate callback/legacy L1 intake →
   backing/activation → on-chain LeanIMT root equals the circuit's `stateRoot` → **real Groth16
   `withdraw`** verified, `context` matched, note spent. Plus a negative test: intake rejects a wrong
   L1 sender. (withdraw ~68.8M l2_gas.)

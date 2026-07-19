@@ -24,8 +24,8 @@ interface IEntrypoint {
    *        The note message executes from L1-derived gas, so no ETH fee is prepaid.
    * @param Arbitrum Arbitrum One/Nova: Delayed Inbox retryable tickets + L1 Gateway Router.
    *        Each L1->L2 op prepays `submissionCost + gasLimit * maxFeePerGas` in ETH.
-   * @param Starknet Starknet: Starknet Core messaging + StarkGate bridge. Each L1->L2 op prepays a
-   *        flat ETH message fee; destination addresses are felts and the note is felt-serialized.
+   * @param Starknet Starknet: one StarkGate `depositWithMessage` operation. The destination address
+   *        is a felt and the commitment callback is serialized as two felts.
    */
   enum BridgeKind {
     OpStack,
@@ -59,23 +59,23 @@ interface IEntrypoint {
    * @param kind The bridge family (selects the pool's inlined bridge code path)
    * @param isSupported Whether the destination chain/token is enabled
    * @param l1Messenger L1 messaging endpoint.
-   *        OpStack: L1CrossDomainMessenger | Arbitrum: Inbox | Starknet: Starknet Core
+   *        OpStack: L1CrossDomainMessenger | Arbitrum: Inbox | Starknet: unused
    * @param l1TokenBridge L1 token-bridge endpoint.
    *        OpStack: L1StandardBridge | Arbitrum: L1GatewayRouter | Starknet: StarkGate bridge
    * @param l2Pool Destination shielded pool as an EVM address (OpStack/Arbitrum). Unused for Starknet.
    * @param l2PoolFelt Destination shielded pool as a felt252 (Starknet). Unused otherwise.
-   * @param l2Handler The `l1_handler` selector for the note message as a felt252 (Starknet). Unused otherwise.
+   * @param l2Handler Legacy Starknet `l1_handler` selector. Unused by `depositWithMessage` and EVM bridges.
    * @param l2Token Remote (L2) token address (OpStack/Arbitrum ERC20). Unused for native / Starknet.
    * @param messageGasLimit Note-message L2 gas limit.
    *        OpStack: minGasLimit | Arbitrum: retryable gasLimit | Starknet: unused
    * @param messageMaxFeePerGas Note-message L2 max fee per gas. Arbitrum only; unused otherwise.
    * @param messageFee Prepaid ETH fee for the note message.
-   *        Arbitrum: maxSubmissionCost | Starknet: total sendMessageToL2 fee | OpStack: unused (0)
+   *        Arbitrum: maxSubmissionCost | OpStack/Starknet: unused (0)
    * @param tokenGasLimit Token-bridge L2 gas limit.
    *        OpStack: minGasLimit | Arbitrum: gateway maxGas | Starknet: unused
    * @param tokenMaxFeePerGas Token-bridge L2 max fee per gas. Arbitrum only (gasPriceBid); unused otherwise.
    * @param tokenFee Prepaid ETH fee for the token bridge op.
-   *        Arbitrum: maxSubmissionCost | Starknet: total StarkGate deposit fee | OpStack: unused (0)
+   *        Arbitrum: maxSubmissionCost | Starknet: total depositWithMessage fee | OpStack: unused (0)
    */
   struct BridgeConfig {
     BridgeKind kind;

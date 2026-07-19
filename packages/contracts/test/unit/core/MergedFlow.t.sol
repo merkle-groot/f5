@@ -4,9 +4,9 @@ pragma solidity 0.8.28;
 import {Test} from 'forge-std/Test.sol';
 import {Vm} from 'forge-std/Vm.sol';
 
+import {IERC20} from '@oz/interfaces/IERC20.sol';
 import {ERC1967Proxy} from '@oz/proxy/ERC1967/ERC1967Proxy.sol';
 import {ERC20} from '@oz/token/ERC20/ERC20.sol';
-import {IERC20} from '@oz/interfaces/IERC20.sol';
 
 import {Entrypoint} from 'contracts/Entrypoint.sol';
 import {PrivacyPool} from 'contracts/PrivacyPool.sol';
@@ -32,31 +32,36 @@ contract MintableERC20 is ERC20 {
 
 /// @notice Always-true Groth16 verifier for both proof sizes
 contract MockVerifier is IVerifier {
-  function verifyProof(uint256[2] memory, uint256[2][2] memory, uint256[2] memory, uint256[10] memory)
-    external
-    pure
-    returns (bool)
-  {
+  function verifyProof(
+    uint256[2] memory,
+    uint256[2][2] memory,
+    uint256[2] memory,
+    uint256[10] memory
+  ) external pure returns (bool) {
     return true;
   }
 
-  function verifyProof(uint256[2] memory, uint256[2][2] memory, uint256[2] memory, uint256[4] memory)
-    external
-    pure
-    returns (bool)
-  {
+  function verifyProof(
+    uint256[2] memory,
+    uint256[2][2] memory,
+    uint256[2] memory,
+    uint256[4] memory
+  ) external pure returns (bool) {
     return true;
   }
 }
 
 /// @notice Records the last cross-domain message
 contract MockMessenger {
+  event MessageSent(address target);
+
   address public lastTarget;
   bytes public lastMessage;
 
   function sendMessage(address _target, bytes calldata _message, uint32) external payable {
     lastTarget = _target;
     lastMessage = _message;
+    emit MessageSent(_target);
   }
 }
 
@@ -65,14 +70,7 @@ contract MockStandardBridge {
   event ERC20Locked(address token, address to, uint256 amount);
   event ETHLocked(address to, uint256 amount);
 
-  function bridgeERC20To(
-    address _localToken,
-    address,
-    address _to,
-    uint256 _amount,
-    uint32,
-    bytes calldata
-  ) external {
+  function bridgeERC20To(address _localToken, address, address _to, uint256 _amount, uint32, bytes calldata) external {
     // Pulls the approved tokens from the caller (the pool), like the real bridge
     IERC20(_localToken).transferFrom(msg.sender, address(this), _amount);
     emit ERC20Locked(_localToken, _to, _amount);
@@ -85,6 +83,8 @@ contract MockStandardBridge {
 
 /// @notice Simulates the Arbitrum Delayed Inbox
 contract MockInbox {
+  event TicketCreated(address to, uint256 l2CallValue);
+
   address public lastTo;
   uint256 public lastCallValue;
   uint256 public lastMsgValue;
@@ -104,12 +104,15 @@ contract MockInbox {
     lastCallValue = _l2CallValue;
     lastMsgValue = msg.value;
     lastData = _data;
+    emit TicketCreated(_to, _l2CallValue);
     return 1;
   }
 }
 
 /// @notice Simulates the Arbitrum L1 Gateway Router (is its own gateway here) locking ERC20s
 contract MockGatewayRouter {
+  event TokenLocked(address token, uint256 amount);
+
   uint256 public lastFee;
 
   function getGateway(address) external view returns (address) {
@@ -127,51 +130,49 @@ contract MockGatewayRouter {
   ) external payable returns (bytes memory) {
     lastFee = msg.value;
     IERC20(_token).transferFrom(msg.sender, address(this), _amount);
+    emit TokenLocked(_token, _amount);
     return bytes('');
-  }
-}
-
-/// @notice Simulates the Starknet Core messaging contract
-contract MockStarknetCore {
-  uint256 public lastToAddress;
-  uint256 public lastSelector;
-  uint256 public lastMsgValue;
-  uint256[] internal _lastPayload;
-
-  function sendMessageToL2(
-    uint256 _toAddress,
-    uint256 _selector,
-    uint256[] calldata _payload
-  ) external payable returns (bytes32, uint256) {
-    lastToAddress = _toAddress;
-    lastSelector = _selector;
-    lastMsgValue = msg.value;
-    _lastPayload = _payload;
-    return (bytes32(0), 0);
-  }
-
-  function lastPayload() external view returns (uint256[] memory) {
-    return _lastPayload;
   }
 }
 
 /// @notice Simulates the StarkGate token bridge (native + ERC20)
 contract MockStarkgate {
   address internal immutable ERC20_TOKEN;
+  address public lastToken;
   uint256 public lastAmount;
   uint256 public lastRecipient;
   uint256 public lastMsgValue;
+  uint256[] internal _lastMessage;
 
   constructor(address _erc20) {
     ERC20_TOKEN = _erc20;
   }
 
   function deposit(address _token, uint256 _amount, uint256 _l2Recipient) external payable {
+    lastToken = _token;
     lastAmount = _amount;
     lastRecipient = _l2Recipient;
     lastMsgValue = msg.value;
     // ERC20 is pulled from the pool; native rides in msg.value
     if (_token == ERC20_TOKEN) IERC20(_token).transferFrom(msg.sender, address(this), _amount);
+  }
+
+  function depositWithMessage(
+    address _token,
+    uint256 _amount,
+    uint256 _l2Recipient,
+    uint256[] calldata _message
+  ) external payable {
+    lastToken = _token;
+    lastAmount = _amount;
+    lastRecipient = _l2Recipient;
+    lastMsgValue = msg.value;
+    _lastMessage = _message;
+    if (_token == ERC20_TOKEN) IERC20(_token).transferFrom(msg.sender, address(this), _amount);
+  }
+
+  function lastMessage() external view returns (uint256[] memory) {
+    return _lastMessage;
   }
 }
 
@@ -197,7 +198,6 @@ contract MergedFlowTest is Test {
   MockStandardBridge internal bridge;
   MockInbox internal inbox;
   MockGatewayRouter internal gatewayRouter;
-  MockStarknetCore internal starknetCore;
   MockStarkgate internal starkgate;
 
   address internal owner = makeAddr('owner');
@@ -212,8 +212,6 @@ contract MergedFlowTest is Test {
   uint256 internal constant ARB_CHAIN = 42_161; // Arbitrum One
   uint256 internal constant SN_CHAIN = 777; // Starknet (opaque key)
   uint256 internal constant SN_POOL_FELT = 0x1234abcd; // destination Cairo pool (felt)
-  uint256 internal constant SN_HANDLER = 0x00beef; // l1_handler selector (felt)
-  uint256 internal constant SN_MSG_FEE = 0.001 ether;
   uint256 internal constant SN_TOKEN_FEE = 0.002 ether;
   uint256 internal constant ARB_MSG_FEE = 0.001 ether;
   uint256 internal constant ARB_TOKEN_FEE = 0.002 ether;
@@ -226,7 +224,6 @@ contract MergedFlowTest is Test {
     bridge = new MockStandardBridge();
     inbox = new MockInbox();
     gatewayRouter = new MockGatewayRouter();
-    starknetCore = new MockStarknetCore();
     token = new MintableERC20();
     starkgate = new MockStarkgate(address(token));
 
@@ -283,19 +280,19 @@ contract MergedFlowTest is Test {
     registry.setBridgeConfig(ARB_CHAIN, Constants.NATIVE_ASSET, _arb);
     registry.setBridgeConfig(ARB_CHAIN, address(token), _arb);
 
-    // Starknet config (Core messaging + StarkGate; flat ETH fees; felt destination)
+    // Starknet config (one atomic StarkGate depositWithMessage; felt destination)
     IEntrypoint.BridgeConfig memory _sn = IEntrypoint.BridgeConfig({
       kind: IEntrypoint.BridgeKind.Starknet,
       isSupported: true,
-      l1Messenger: address(starknetCore),
+      l1Messenger: address(0),
       l1TokenBridge: address(starkgate),
       l2Pool: address(0),
       l2PoolFelt: SN_POOL_FELT,
-      l2Handler: SN_HANDLER,
+      l2Handler: 0,
       l2Token: address(0),
       messageGasLimit: 0,
       messageMaxFeePerGas: 0,
-      messageFee: SN_MSG_FEE,
+      messageFee: 0,
       tokenGasLimit: 0,
       tokenMaxFeePerGas: 0,
       tokenFee: SN_TOKEN_FEE
@@ -394,8 +391,10 @@ contract MergedFlowTest is Test {
 
     uint256 _bridgeBalBefore = address(bridge).balance;
 
+    vm.recordLogs();
     vm.prank(relayer);
     nativePool.relay(_w, _p);
+    Vm.Log[] memory _logs = vm.getRecordedLogs();
 
     // 5% of 1 ether = 0.05 fee, 0.95 bridged
     assertEq(feeRecipient.balance, 0.05 ether, 'fee paid once');
@@ -408,6 +407,18 @@ contract MergedFlowTest is Test {
     (uint256 _bridgedValue, uint256 _commitment) = abi.decode(_slice4(_message), (uint256, uint256));
     assertEq(_bridgedValue, 0.95 ether, 'message carries the bridged value');
     assertEq(_commitment, _p.pubSignals[1], 'message carries C_dest');
+
+    uint256 _tokenLog = type(uint256).max;
+    uint256 _messageLog = type(uint256).max;
+    for (uint256 _i; _i < _logs.length; ++_i) {
+      if (_logs[_i].emitter == address(bridge) && _logs[_i].topics[0] == keccak256('ETHLocked(address,uint256)')) {
+        _tokenLog = _i;
+      }
+      if (_logs[_i].emitter == address(messenger) && _logs[_i].topics[0] == keccak256('MessageSent(address)')) {
+        _messageLog = _i;
+      }
+    }
+    assertLt(_tokenLog, _messageLog, 'OP backing must be initiated before the commitment');
   }
 
   /// @notice Drop the leading 4-byte selector from an ABI-encoded call, returning the argument tail
@@ -437,6 +448,8 @@ contract MergedFlowTest is Test {
     bytes32 _transferSig = keccak256('Transfer(address,address,uint256)');
     uint256 _poolTransfers;
     bool _sentToRegistry;
+    uint256 _tokenLog = type(uint256).max;
+    uint256 _messageLog = type(uint256).max;
     for (uint256 _i; _i < _logs.length; ++_i) {
       if (_logs[_i].emitter == address(token) && _logs[_i].topics[0] == _transferSig) {
         address _from = address(uint160(uint256(_logs[_i].topics[1])));
@@ -446,6 +459,14 @@ contract MergedFlowTest is Test {
           if (_to == address(registry)) _sentToRegistry = true;
         }
       }
+      if (
+        _logs[_i].emitter == address(bridge) && _logs[_i].topics[0] == keccak256('ERC20Locked(address,address,uint256)')
+      ) {
+        _tokenLog = _i;
+      }
+      if (_logs[_i].emitter == address(messenger) && _logs[_i].topics[0] == keccak256('MessageSent(address)')) {
+        _messageLog = _i;
+      }
     }
 
     // Exactly two outgoing transfers: bridge lock + relayer fee. No Pool -> Entrypoint hop.
@@ -453,6 +474,7 @@ contract MergedFlowTest is Test {
     assertFalse(_sentToRegistry, 'funds never route through the registry');
     assertEq(token.balanceOf(feeRecipient), 0.05 ether);
     assertEq(token.balanceOf(address(bridge)), 0.95 ether);
+    assertLt(_tokenLog, _messageLog, 'OP backing must be initiated before the commitment');
   }
 
   function test_RelayRevertsWhenRelayFeeExceedsMax() public {
@@ -520,8 +542,10 @@ contract MergedFlowTest is Test {
     ProofLib.WithdrawProof memory _p = _buildProof(tokenPool, _w, 1 ether);
 
     vm.deal(relayer, 1 ether);
+    vm.recordLogs();
     vm.prank(relayer);
     tokenPool.relay{value: ARB_MSG_FEE + ARB_TOKEN_FEE}(_w, _p);
+    Vm.Log[] memory _logs = vm.getRecordedLogs();
 
     // Note ticket (no callvalue) + token locked via the gateway router
     assertEq(inbox.lastTo(), l2Pool);
@@ -531,9 +555,23 @@ contract MergedFlowTest is Test {
     assertEq(token.balanceOf(address(gatewayRouter)), 0.95 ether, 'principal locked once via gateway');
     assertEq(token.balanceOf(feeRecipient), 0.05 ether, 'relay fee paid once');
     assertEq(relayer.balance, 1 ether - ARB_MSG_FEE - ARB_TOKEN_FEE, 'relayer charged both fees');
+
+    uint256 _tokenLog = type(uint256).max;
+    uint256 _messageLog = type(uint256).max;
+    for (uint256 _i; _i < _logs.length; ++_i) {
+      if (
+        _logs[_i].emitter == address(gatewayRouter) && _logs[_i].topics[0] == keccak256('TokenLocked(address,uint256)')
+      ) {
+        _tokenLog = _i;
+      }
+      if (_logs[_i].emitter == address(inbox) && _logs[_i].topics[0] == keccak256('TicketCreated(address,uint256)')) {
+        _messageLog = _i;
+      }
+    }
+    assertLt(_tokenLog, _messageLog, 'Arbitrum backing must be initiated before the commitment');
   }
 
-  function test_StarknetRelaySerializesNoteIntoFelts() public {
+  function test_StarknetRelayUsesDepositWithMessage() public {
     token.mint(depositor, 10 ether);
     vm.startPrank(depositor);
     token.approve(address(tokenPool), 10 ether);
@@ -546,25 +584,40 @@ contract MergedFlowTest is Test {
 
     vm.deal(relayer, 1 ether);
     vm.prank(relayer);
-    tokenPool.relay{value: SN_MSG_FEE + SN_TOKEN_FEE}(_w, _p);
+    tokenPool.relay{value: SN_TOKEN_FEE}(_w, _p);
 
-    // Message routed to the felt destination + handler, with the fee forwarded
-    assertEq(starknetCore.lastToAddress(), SN_POOL_FELT, 'message targets the Cairo pool felt');
-    assertEq(starknetCore.lastSelector(), SN_HANDLER, 'l1_handler selector carried');
-    assertEq(starknetCore.lastMsgValue(), SN_MSG_FEE, 'message fee forwarded');
+    // StarkGate carries the commitment callback in the same deposit that locks the tokens.
+    uint256[] memory _message = starkgate.lastMessage();
+    assertEq(_message.length, 2, 'callback message shape');
+    assertEq(_message[0], _commitment & type(uint128).max, 'commitment low felt');
+    assertEq(_message[1], _commitment >> 128, 'commitment high felt');
+    assertEq(_message[0] | (_message[1] << 128), _commitment, 'felt split reconstructs the commitment');
 
-    // Payload = [value, commitment_low_128, commitment_high]
-    uint256[] memory _payload = starknetCore.lastPayload();
-    assertEq(_payload.length, 3, 'felt payload shape');
-    assertEq(_payload[0], 0.95 ether, 'bridged value felt');
-    assertEq(_payload[1], _commitment & type(uint128).max, 'commitment low felt');
-    assertEq(_payload[2], _commitment >> 128, 'commitment high felt');
-    assertEq(_payload[1] | (_payload[2] << 128), _commitment, 'felt split reconstructs the commitment');
-
-    // Token locked via StarkGate to the felt recipient
+    assertEq(starkgate.lastToken(), address(token));
+    assertEq(starkgate.lastAmount(), 0.95 ether);
     assertEq(starkgate.lastRecipient(), SN_POOL_FELT);
+    assertEq(starkgate.lastMsgValue(), SN_TOKEN_FEE, 'only the StarkGate fee is forwarded');
     assertEq(token.balanceOf(address(starkgate)), 0.95 ether, 'principal locked once via StarkGate');
-    assertEq(relayer.balance, 1 ether - SN_MSG_FEE - SN_TOKEN_FEE, 'relayer charged both fees');
+    assertEq(relayer.balance, 1 ether - SN_TOKEN_FEE, 'relayer charged one StarkGate fee');
+  }
+
+  function test_StarknetNativeRelayUsesEthDepositWithMessage() public {
+    vm.deal(depositor, 10 ether);
+    vm.prank(depositor);
+    nativePool.deposit{value: 10 ether}(uint256(keccak256('precommit-sn-native')));
+
+    IPrivacyPool.Withdrawal memory _w = _buildWithdrawalChain(SN_CHAIN, 500);
+    ProofLib.WithdrawProof memory _p = _buildProof(nativePool, _w, 1 ether);
+
+    vm.deal(relayer, 1 ether);
+    vm.prank(relayer);
+    nativePool.relay{value: SN_TOKEN_FEE}(_w, _p);
+
+    assertEq(starkgate.lastToken(), address(0x455448), 'StarkGate ETH identifier');
+    assertEq(starkgate.lastAmount(), 0.95 ether);
+    assertEq(starkgate.lastRecipient(), SN_POOL_FELT);
+    assertEq(starkgate.lastMsgValue(), 0.95 ether + SN_TOKEN_FEE, 'principal and fee forwarded once');
+    assertEq(relayer.balance, 1 ether - SN_TOKEN_FEE, 'relayer charged one StarkGate fee');
   }
 
   function test_RelayRevertsWhenBridgeFeeInsufficient() public {
@@ -580,7 +633,7 @@ contract MergedFlowTest is Test {
     vm.deal(relayer, 1 ether);
     vm.prank(relayer);
     vm.expectRevert(IPrivacyPool.InsufficientBridgeFee.selector);
-    tokenPool.relay{value: SN_MSG_FEE}(_w, _p); // missing the token fee
+    tokenPool.relay{value: SN_TOKEN_FEE - 1}(_w, _p);
   }
 
   function test_RelayRefundsExcessBridgeFee() public {

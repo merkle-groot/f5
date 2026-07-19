@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from "express";
-import { RelayerError, WithdrawalValidationError } from "../exceptions/base.exception.js";
+import { ErrorCode, RelayerError, WithdrawalValidationError } from "../exceptions/base.exception.js";
 import { RelayerMarshall } from "../types.js";
 import { ConfigError, ValidationError } from "../exceptions/base.exception.js";
 
@@ -39,7 +39,13 @@ export function errorHandlerMiddleware(
   if (err instanceof RelayerError) {
     const { message, code, details } = err;
     const errorResponse = { message, code, details }
-    if (err instanceof ConfigError) {
+    // Destination errors carry a meaningful HTTP shape that the app server proxies
+    // straight through: an unknown destination is a 404, an unsigned one a 503.
+    if (code === ErrorCode.UNKNOWN_DESTINATION) {
+      res.status(404).json(errorResponse);
+    } else if (code === ErrorCode.DESTINATION_NOT_CONFIGURED) {
+      res.status(503).json(errorResponse);
+    } else if (err instanceof ConfigError) {
       res.status(400).json(errorResponse);
     } else if (err instanceof ValidationError) {
       res.status(400).json(errorResponse);

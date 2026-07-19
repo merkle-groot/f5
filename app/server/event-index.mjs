@@ -8,10 +8,32 @@ function compareLogs(a, b) {
   return Number((a.logIndex ?? 0) - (b.logIndex ?? 0));
 }
 
+/**
+ * The configured RPC concurrency cap.
+ *
+ * `RPC_CONCURRENCY` is the canonical name and is shared with the relayer's own
+ * limiter (`packages/relayer/src/utils/rpcThrottle.ts`), so one value tunes both
+ * processes. The two used to read different names, which meant raising the app's
+ * limit silently left the relayer at 1 and vice versa.
+ *
+ * `RPC_LOG_CONCURRENCY` is the app's previous name, still honoured so an existing
+ * deployment that tuned it does not silently revert to 1 on upgrade.
+ */
+export function rpcConcurrency(env = process.env) {
+  const legacy = env.RPC_LOG_CONCURRENCY;
+  if (legacy !== undefined && env.RPC_CONCURRENCY === undefined) {
+    console.warn(
+      "[rpc] RPC_LOG_CONCURRENCY is deprecated; rename it to RPC_CONCURRENCY, which the relayer reads too.",
+    );
+    return Number(legacy);
+  }
+  return Number(env.RPC_CONCURRENCY ?? 1);
+}
+
 /** Limit concurrent expensive work independently for each chain. */
 export class KeyedConcurrencyLimiter {
-  constructor(limit = Number(process.env.RPC_LOG_CONCURRENCY ?? 1)) {
-    this.limit = Math.max(1, Number(limit));
+  constructor(limit = rpcConcurrency()) {
+    this.limit = Math.max(1, Number.isFinite(Number(limit)) ? Number(limit) : 1);
     this.states = new Map();
   }
 
@@ -101,7 +123,7 @@ export class EventIndex {
     return state.inFlight;
   }
 
-  async refresh(state, { chain, rpcUrl, address, event, fromBlock, force = false }) {
+  async refresh(state, { chain, rpcUrl, address, event, events, fromBlock, force = false }) {
     const head = await this.runtime.head(chain, rpcUrl, { force });
     if (!force && state.lastHead === head) {
       this.runtime.metrics.cache.eventHits += 1;
@@ -116,7 +138,7 @@ export class EventIndex {
     // removal of logs when a shallow reorg changes blocks in the trailing window.
     const retained = state.logs.filter((log) => log.blockNumber < start);
     const fresh = start <= head
-      ? await this.fetchRange({ chain, rpcUrl, address, event, fromBlock: start, toBlock: head })
+      ? await this.fetchRange({ chain, rpcUrl, address, event, events, fromBlock: start, toBlock: head })
       : [];
     const seen = new Set(retained.map(logId));
     for (const log of fresh) {
@@ -134,14 +156,19 @@ export class EventIndex {
     return state.logs;
   }
 
-  async fetchRange({ chain, rpcUrl, address, event, fromBlock, toBlock }) {
+  async fetchRange({ chain, rpcUrl, address, event, events, fromBlock, toBlock }) {
     const client = this.runtime.client(chain, rpcUrl);
     const logs = [];
     for (let start = fromBlock; start <= toBlock; start += this.chunkBlocks + 1n) {
       const end = start + this.chunkBlocks > toBlock ? toBlock : start + this.chunkBlocks;
       logs.push(...await this.limiter.run(
         chain,
-        () => this.retry(() => client.getLogs({ address, event, fromBlock: start, toBlock: end })),
+        () => this.retry(() => client.getLogs({
+          address,
+          ...(events ? { events } : { event }),
+          fromBlock: start,
+          toBlock: end,
+        })),
       ));
     }
     return logs;

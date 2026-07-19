@@ -7,6 +7,56 @@ services:
     environment:
       - name: CONFIG_PATH
         value: /etc/secrets/config.json
+      - name: CHAIN_11155111_RPC_URL
+        valueFrom:
+          secretKeyRef:
+            name: relayer-config-staging
+            key: CHAIN_11155111_RPC_URL
+      - name: DESTINATION_OP_RPC_URL
+        valueFrom:
+          secretKeyRef:
+            name: relayer-config-staging
+            key: DESTINATION_OP_RPC_URL
+      - name: DESTINATION_BASE_RPC_URL
+        valueFrom:
+          secretKeyRef:
+            name: relayer-config-staging
+            key: DESTINATION_BASE_RPC_URL
+      - name: DESTINATION_ARB_RPC_URL
+        valueFrom:
+          secretKeyRef:
+            name: relayer-config-staging
+            key: DESTINATION_ARB_RPC_URL
+      - name: DESTINATION_STARKNET_RPC_URL
+        valueFrom:
+          secretKeyRef:
+            name: relayer-config-staging
+            key: DESTINATION_STARKNET_RPC_URL
+      - name: RELAYER_PRIVATE_KEY
+        valueFrom:
+          secretKeyRef:
+            name: relayer-config-staging
+            key: RELAYER_PRIVATE_KEY
+      - name: DESTINATION_OP_PRIVATE_KEY
+        valueFrom:
+          secretKeyRef:
+            name: relayer-config-staging
+            key: DESTINATION_OP_PRIVATE_KEY
+      - name: DESTINATION_BASE_PRIVATE_KEY
+        valueFrom:
+          secretKeyRef:
+            name: relayer-config-staging
+            key: DESTINATION_BASE_PRIVATE_KEY
+      - name: DESTINATION_ARB_PRIVATE_KEY
+        valueFrom:
+          secretKeyRef:
+            name: relayer-config-staging
+            key: DESTINATION_ARB_PRIVATE_KEY
+      - name: DESTINATION_STARKNET_PRIVATE_KEY
+        valueFrom:
+          secretKeyRef:
+            name: relayer-config-staging
+            key: DESTINATION_STARKNET_PRIVATE_KEY
     resources:
       cpu: 100m
       memory: 2Gi

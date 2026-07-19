@@ -96,6 +96,14 @@ contract L2PrivacyPoolArbitrumTest is Test {
     // pool receives value and note atomically and activates immediately.
     uint256 _commitment = _c('native');
     vm.deal(aliasedL1Pool, 1 ether);
+
+    vm.expectEmit(true, false, false, true, address(nativePool));
+    emit IL2PrivacyPool.NoteReceived(_commitment, 1 ether);
+    vm.expectEmit(false, false, false, true, address(nativePool));
+    emit IL2PrivacyPool.BackingReceived(1 ether, 1 ether);
+    vm.expectEmit(true, false, false, true, address(nativePool));
+    emit IL2PrivacyPool.NoteActivated(_commitment, 1 ether);
+
     vm.prank(aliasedL1Pool);
     nativePool.deposit{value: 1 ether}(1 ether, _commitment);
 

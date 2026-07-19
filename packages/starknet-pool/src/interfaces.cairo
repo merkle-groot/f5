@@ -1,6 +1,7 @@
-use starknet::ContractAddress;
+use starknet::{ContractAddress, EthAddress};
 
-/// A withdrawal request. Flattened relative to the EVM `Withdrawal` (no nested `bytes`/`RelayData`):
+/// A withdrawal request. Flattened relative to the EVM `Withdrawal` (no nested
+/// `bytes`/`RelayData`):
 /// on Starknet the relay fields are bound directly into the Poseidon `context`, so there is no need
 /// to carry an opaque ABI blob.
 #[derive(Drop, Serde, Copy)]
@@ -24,7 +25,9 @@ pub trait IStarknetPrivacyPool<TContractState> {
 
     /// Privately spend a delivered note, exiting its full value to a clear recipient.
     /// `full_proof_with_hints` is the Garaga-format groth16 calldata for the withdrawL2 verifier.
-    fn withdraw(ref self: TContractState, withdrawal: Withdrawal, full_proof_with_hints: Span<felt252>);
+    fn withdraw(
+        ref self: TContractState, withdrawal: Withdrawal, full_proof_with_hints: Span<felt252>,
+    );
 
     // ---- views ----
     fn current_root(self: @TContractState) -> u256;
@@ -43,4 +46,16 @@ pub trait IStarknetPrivacyPool<TContractState> {
 pub trait IERC20<TContractState> {
     fn transfer(ref self: TContractState, recipient: ContractAddress, amount: u256) -> bool;
     fn balance_of(self: @TContractState, account: ContractAddress) -> u256;
+}
+
+/// Callback invoked by StarkGate after it has credited the bridged L2 tokens to the recipient.
+#[starknet::interface]
+pub trait ITokenBridgeReceiver<TContractState> {
+    fn on_receive(
+        ref self: TContractState,
+        l2_token: ContractAddress,
+        amount: u256,
+        depositor: EthAddress,
+        message: Span<felt252>,
+    ) -> bool;
 }

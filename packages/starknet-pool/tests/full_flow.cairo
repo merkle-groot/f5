@@ -5,19 +5,21 @@
 //! value the fixture's proof `context` was bound to (the pool otherwise derives scope from its own
 //! deploy address, which isn't known ahead of proof generation).
 
-use snforge_std::{
-    declare, ContractClassTrait, DeclareResultTrait, store, mock_call, start_cheat_caller_address,
-    stop_cheat_caller_address,
-};
 use snforge_std::cheatcodes::l1_handler::L1HandlerTrait;
 use snforge_std::fs::{FileTrait, read_txt};
+use snforge_std::{
+    ContractClassTrait, DeclareResultTrait, declare, mock_call, start_cheat_caller_address,
+    stop_cheat_caller_address, store,
+};
 use starknet::ContractAddress;
 use starknet_privacy_pool::interfaces::{
-    IStarknetPrivacyPoolDispatcher, IStarknetPrivacyPoolDispatcherTrait, Withdrawal,
+    IStarknetPrivacyPoolDispatcher, IStarknetPrivacyPoolDispatcherTrait,
+    ITokenBridgeReceiverDispatcher, ITokenBridgeReceiverDispatcherTrait, Withdrawal,
 };
 
 // From tests/fixtures/meta.json
 const L1_POOL: felt252 = 0x00000000000000000000000000000000deadbeef; // arbitrary EVM sender felt
+const TOKEN_BRIDGE: felt252 = 0x888;
 const SCOPE: felt252 = 12345678901234567890;
 const NOTE_VALUE: felt252 = 1000000000000000000;
 const NOTE_LEAF: u256 =
@@ -41,11 +43,13 @@ fn deploy() -> (IStarknetPrivacyPoolDispatcher, ContractAddress) {
     let verifier = declare("Groth16VerifierBN254").unwrap().contract_class();
     let (verifier_addr, _) = verifier.deploy(@array![]).unwrap();
 
-    // Pool. Constructor: (l1_pool, asset, withdrawal_verifier, max_relay_fee_bps: u256).
+    // Pool. Constructor: (l1_pool, asset, token_bridge, withdrawal_verifier, max_relay_fee_bps:
+    // u256).
     let pool = declare("StarknetPrivacyPool").unwrap().contract_class();
     let mut calldata: Array<felt252> = array![];
     calldata.append(L1_POOL);
     calldata.append(dummy_asset().into());
+    calldata.append(TOKEN_BRIDGE);
     calldata.append(verifier_addr.into());
     calldata.append(1000); // max_relay_fee_bps.low
     calldata.append(0); //    max_relay_fee_bps.high
@@ -60,6 +64,23 @@ fn deploy() -> (IStarknetPrivacyPoolDispatcher, ContractAddress) {
     mock_call(dummy_asset(), selector!("transfer"), true, 0xffffffff);
 
     (IStarknetPrivacyPoolDispatcher { contract_address: pool_addr }, pool_addr)
+}
+
+#[test]
+#[fork(url: "https://api.zan.top/public/starknet-sepolia/rpc/v0_10", block_tag: latest)]
+fn starkgate_callback_accepts_commitment_after_backing() {
+    let (pool, pool_addr) = deploy();
+    let receiver = ITokenBridgeReceiverDispatcher { contract_address: pool_addr };
+    let message = array![NOTE_LEAF.low.into(), NOTE_LEAF.high.into()];
+
+    start_cheat_caller_address(pool_addr, TOKEN_BRIDGE.try_into().unwrap());
+    let accepted = receiver
+        .on_receive(dummy_asset(), NOTE_VALUE.into(), L1_POOL.try_into().unwrap(), message.span());
+    stop_cheat_caller_address(pool_addr);
+
+    assert(accepted, 'callback rejected');
+    assert(pool.pending_value(NOTE_LEAF) == 0, 'note did not activate');
+    assert(pool.current_tree_size() == 1, 'note not inserted');
 }
 
 /// Deliver a note over the L1->L2 message path (value + commitment split lo/hi).

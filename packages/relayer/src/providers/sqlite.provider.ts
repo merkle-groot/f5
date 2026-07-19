@@ -23,7 +23,12 @@ export class SqliteDatabase implements RelayerDatabase {
   /** Database connection instance. */
   private db!: Database<sqlite3.Database, sqlite3.Statement>;
 
-  /** SQL statement for creating the requests table. */
+  /**
+   * SQL statement for creating the requests table.
+   *
+   * `kind` is deliberately unconstrained (no CHECK): destination keys are config-driven,
+   * so a new chain must not require a schema change.
+   */
   private createTableRequest = `
 CREATE TABLE IF NOT EXISTS requests (
     id UUID PRIMARY KEY,
@@ -31,7 +36,8 @@ CREATE TABLE IF NOT EXISTS requests (
     request JSON,
     status TEXT CHECK(status IN ('BROADCASTED', 'FAILED', 'RECEIVED')) NOT NULL,
     txHash TEXT,
-    error TEXT
+    error TEXT,
+    kind TEXT NOT NULL DEFAULT 'l1-relay'
 );
 `;
 
@@ -65,12 +71,26 @@ CREATE TABLE IF NOT EXISTS requests (
         filename: this.dbPath,
       });
       await this.db.run(this.createTableRequest);
+      await this.migrateKindColumn();
     } catch (error) {
       console.error("Unable to initialize SQLite database", error);
       throw error;
     }
     this._initialized = true;
     console.log("sqlite db initialized");
+  }
+
+  /**
+   * Adds `kind` to a table created before destination writes existed.
+   *
+   * `CREATE TABLE IF NOT EXISTS` is a no-op on an existing table, so the column in
+   * `createTableRequest` never lands on a live database. Existing rows are all L1
+   * relays, which is exactly what the column default records.
+   */
+  private async migrateKindColumn(): Promise<void> {
+    const columns = await this.db.all<{ name: string }[]>(`PRAGMA table_info(requests)`);
+    if (columns.some((column) => column.name === "kind")) return;
+    await this.db.run(`ALTER TABLE requests ADD COLUMN kind TEXT NOT NULL DEFAULT 'l1-relay'`);
   }
 
   /**
@@ -86,14 +106,42 @@ CREATE TABLE IF NOT EXISTS requests (
     timestamp: number,
     req: WithdrawalPayload,
   ): Promise<void> {
-    const strigifiedPayload = JSON.stringify(req, replacer);
+    return this.createRequest(requestId, timestamp, req, "l1-relay");
+  }
+
+  /**
+   * Inserts a destination (L2 pool) write, so activations and L2 withdrawals get the
+   * same audit trail L1 relays already have.
+   *
+   * @param {string} requestId - Unique ID for the request.
+   * @param {number} timestamp - Timestamp of the request.
+   * @param {unknown} payload - The request payload.
+   * @param {string} kind - e.g. `op:activate`, `starknet:withdraw`.
+   * @returns {Promise<void>} - A promise that resolves when the request is stored.
+   */
+  async createDestinationRequest(
+    requestId: string,
+    timestamp: number,
+    payload: unknown,
+    kind: string,
+  ): Promise<void> {
+    return this.createRequest(requestId, timestamp, payload, kind);
+  }
+
+  private async createRequest(
+    requestId: string,
+    timestamp: number,
+    payload: unknown,
+    kind: string,
+  ): Promise<void> {
+    const strigifiedPayload = JSON.stringify(payload, replacer);
     // Store initial request
     await this.db.run(
       `
-      INSERT INTO requests (id, timestamp, request, status)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO requests (id, timestamp, request, status, kind)
+      VALUES (?, ?, ?, ?, ?)
     `,
-      [requestId, timestamp, strigifiedPayload, RequestStatus.RECEIVED],
+      [requestId, timestamp, strigifiedPayload, RequestStatus.RECEIVED, kind],
     );
   }
 

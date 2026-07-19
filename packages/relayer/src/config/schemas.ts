@@ -67,6 +67,51 @@ export const zChainConfig = z.object({
   native_currency: zNativeCurrency.optional(),
 });
 
+/**
+ * A Starknet felt: hex (`0x…`) or decimal, below the 2^251 field bound.
+ *
+ * Kept as a string rather than a bigint so the value round-trips through the JSON
+ * config unchanged; callers coerce at the point of use.
+ */
+export const zFelt = z
+  .string()
+  .regex(/^(?:0x[0-9a-fA-F]+|\d+)$/, "must be a hex or decimal felt")
+  .refine((v) => BigInt(v) < (1n << 251n), "must be below the felt252 field bound");
+
+/**
+ * A destination pool the relayer writes to (`activateNote` / `withdraw`).
+ *
+ * This is NOT a `zChainConfig`. A chain entry describes where the L1 **entrypoint**
+ * lives and is keyed by numeric chain id; a destination describes an L2 **pool** and
+ * is keyed by a string (`op`, `base`, `starknet`) because Starknet has no EVM chain
+ * id. The two are deliberately separate: conflating them is what would force a felt
+ * chain id through `z.coerce.number()`.
+ */
+export const zDestination = z.discriminatedUnion("family", [
+  z.object({
+    family: z.literal("evm"),
+    key: z.string().min(1),
+    chain_id: z.string().or(z.number()).pipe(z.coerce.number().positive()),
+    chain_name: z.string(),
+    rpc_url: z.string().url(),
+    pool_address: zAddress,
+    // Optional here for the same reason as `zDefaultConfig.signer_private_key`: the
+    // secret belongs in the environment, not in this committed file.
+    signer_private_key: zPkey.optional(),
+    native_currency: zNativeCurrency.optional(),
+  }),
+  z.object({
+    family: z.literal("starknet"),
+    key: z.string().min(1),
+    chain_id: zFelt,
+    chain_name: z.string(),
+    rpc_url: z.string().url(),
+    pool_address: zFelt,
+    relayer_address: zFelt,
+    signer_private_key: zFelt.optional(),
+  }),
+]);
+
 // Common configuration schema
 export const zCommonConfig = z.object({
   sqlite_db_path: z.string().transform((p) => path.resolve(p)),
@@ -90,6 +135,9 @@ export const zConfig = z
   .object({
     defaults: zDefaultConfig,
     chains: z.array(zChainConfig),
+    // Defaulted, so every existing config file keeps parsing with no destinations
+    // configured — the relayer simply serves no destination writes until one is added.
+    destinations: z.array(zDestination).default([]),
     sqlite_db_path: zCommonConfig.shape.sqlite_db_path,
     cors_allow_all: zCommonConfig.shape.cors_allow_all,
     allowed_domains: zCommonConfig.shape.allowed_domains,

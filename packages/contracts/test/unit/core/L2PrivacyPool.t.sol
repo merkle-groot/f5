@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {Test} from 'forge-std/Test.sol';
+import {Vm} from 'forge-std/Vm.sol';
 
 import {L2PrivacyPool} from 'contracts/L2/L2PrivacyPool.sol';
 import {Constants} from 'contracts/lib/Constants.sol';
@@ -106,6 +107,30 @@ contract L2PrivacyPoolTest is Test {
     assertEq(nativePool.activatedSupply(), 1 ether);
     assertEq(nativePool.currentTreeSize(), 1);
     assertTrue(nativePool.currentRoot() != 0);
+  }
+
+  function test_NativeReceiptEmitsBackingSignal() public {
+    vm.deal(address(this), 1 ether);
+
+    vm.expectEmit(false, false, false, true, address(nativePool));
+    emit IL2PrivacyPool.BackingReceived(1 ether, 1 ether);
+
+    (bool _success,) = address(nativePool).call{value: 1 ether}('');
+    assertTrue(_success);
+  }
+
+  function test_TokenPoolDoesNotEmitNativeBackingSignal() public {
+    vm.deal(address(this), 1 ether);
+    vm.recordLogs();
+
+    (bool _success,) = address(tokenPool).call{value: 1 ether}('');
+    assertTrue(_success);
+
+    Vm.Log[] memory _logs = vm.getRecordedLogs();
+    bytes32 _backingTopic = keccak256('BackingReceived(uint256,uint256)');
+    for (uint256 _i; _i < _logs.length; ++_i) {
+      assertTrue(_logs[_i].topics[0] != _backingTopic);
+    }
   }
 
   function test_NoteAutoActivatesWhenTokensAlreadyLanded() public {

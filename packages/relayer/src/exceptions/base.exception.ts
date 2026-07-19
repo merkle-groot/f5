@@ -36,6 +36,12 @@ export enum ErrorCode {
 
   // Quote errors
   QUOTE_ERROR = "QUOTE_ERROR",
+
+  // Destination (L2 pool) errors
+  UNKNOWN_DESTINATION = "UNKNOWN_DESTINATION",
+  DESTINATION_NOT_CONFIGURED = "DESTINATION_NOT_CONFIGURED",
+  ACTIVATION_UNBACKED = "ACTIVATION_UNBACKED",
+  PROCESSOOOR_NOT_RELAYER = "PROCESSOOOR_NOT_RELAYER",
 }
 
 /**
@@ -169,6 +175,73 @@ export class ConfigError extends RelayerError {
     details?: Record<string, unknown> | string,
   ): ConfigError {
     return new ConfigError("Gas price too high", ErrorCode.MAX_GAS_PRICE, details)
+  }
+
+  /**
+   * The caller named a destination key that is not in the config at all.
+   * Distinct from `notConfigured`: this one maps to a 404, that one to a 503.
+   */
+  public static unknownDestination(
+    details?: Record<string, unknown> | string,
+  ): ConfigError {
+    return new ConfigError("Unknown destination", ErrorCode.UNKNOWN_DESTINATION, details);
+  }
+}
+
+/**
+ * Errors raised while writing to a destination (L2) pool.
+ *
+ * Separate from `BlockchainError` because these are pre-flight refusals: the relayer
+ * declines to spend gas on a transaction it can already tell will revert.
+ */
+export class DestinationError extends RelayerError {
+  constructor(
+    message: string,
+    code: ErrorCode = ErrorCode.UNKNOWN,
+    details?: Record<string, unknown> | string,
+  ) {
+    super(message, code, details);
+    this.name = this.constructor.name;
+  }
+
+  /** The destination exists in config but has no signing key, so it is read-only. */
+  public static notConfigured(
+    details?: Record<string, unknown> | string,
+  ): DestinationError {
+    return new DestinationError(
+      "Destination has no configured signer",
+      ErrorCode.DESTINATION_NOT_CONFIGURED,
+      details,
+    );
+  }
+
+  /**
+   * Activating this note would push `spendableShieldedSupply` past
+   * `tokensReceivedFromBridge` (CLAUDE.md §6). The pool enforces this too; we check
+   * first so a doomed transaction is never broadcast.
+   */
+  public static unbackedActivation(
+    details?: Record<string, unknown> | string,
+  ): DestinationError {
+    return new DestinationError(
+      "Activation is not backed by bridged tokens",
+      ErrorCode.ACTIVATION_UNBACKED,
+      details,
+    );
+  }
+
+  /**
+   * The L2 withdrawal names a `processooor` other than this relayer's signer. The
+   * pool would revert, and we would have paid the gas to find out.
+   */
+  public static processooorNotRelayer(
+    details?: Record<string, unknown> | string,
+  ): DestinationError {
+    return new DestinationError(
+      "Withdrawal processooor is not this relayer",
+      ErrorCode.PROCESSOOOR_NOT_RELAYER,
+      details,
+    );
   }
 }
 

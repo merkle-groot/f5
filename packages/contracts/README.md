@@ -220,20 +220,19 @@ yarn configure:bridge:base-sepolia --broadcast
 **Starknet Sepolia destination pool:**
 
 The Cairo pool is deployed with the `starknet-pool` package tooling (scarb/starkli), not Foundry. Its
-constructor binds the L1 pool address (`l1_pool`, immutable) — deploy it against the **current** L1
-pool, or `receive_note` will reject every note. Once it exists, set `L2_TARGET=STARKNET_SEPOLIA`, fill
-the `STARKNET_SEPOLIA_*` block (Starknet Core + StarkGate ETH bridge addresses, the pool felt, the
-`sn_keccak("receive_note")` handler selector, and the prepaid message/token fees), then wire the
-Entrypoint's bridge config for Starknet:
+constructor binds the L1 pool address and StarkGate L2 token bridge (both immutable). Deploy it
+against the **current** L1 pool and canonical token bridge, then set `L2_TARGET=STARKNET_SEPOLIA`,
+fill the `STARKNET_SEPOLIA_*` block (StarkGate L1 bridge, pool felt, and prepaid token fee), and wire
+the Entrypoint's bridge config for Starknet:
 
 ```bash
 yarn configure:bridge:starknet-sepolia --broadcast
 ```
 
 Without this the pool's `_bridgeStarknet` path is unreachable — `_bridge` reverts `UnsupportedChain`.
-Both the message fee and the token fee are prepaid in ETH from the withdrawal's `msg.value`; the ETH
-value itself rides StarkGate's token-less `deposit` overload (native ETH uses StarkGate's own
-sentinel, not this repo's `NATIVE_ASSET`).
+One StarkGate fee is prepaid in ETH from the withdrawal's `msg.value`. The native value and
+commitment ride the same `depositWithMessage` operation using StarkGate's ETH identifier
+(`address(0x455448)`, not this repo's `NATIVE_ASSET`).
 
 **Gnosis Chiado:**
 ```bash

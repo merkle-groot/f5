@@ -26,3 +26,6 @@ node_modules
 !PROGRESS.md
 !FIXES.md
 !docs/**/*.md
+
+# Keep local documentation drafts out of commits.
+docs/*

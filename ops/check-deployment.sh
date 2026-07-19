@@ -70,7 +70,11 @@ norm_felt() {
 }
 
 # Redact provider API keys before anything reaches stdout.
-redact() { printf '%s' "$1" | sed -E 's#(/v3/|/rpc/v[0-9_]+/|apiKey=)[A-Za-z0-9_-]+#\1<redacted>#g'; }
+redact() {
+  printf '%s' "$1" | sed -E \
+    -e 's#(/v3/|/rpc/v[0-9_]+/|apiKey=)[A-Za-z0-9_-]+#\1<redacted>#g' \
+    -e 's#(https?://[^/]*\.drpc\.live/[^/]+/)[A-Za-z0-9_-]+#\1<redacted>#g'
+}
 
 # ---- readers -----------------------------------------------------------------
 # Parse KEY=value from a .env without sourcing it; sourcing would execute the file.
@@ -116,6 +120,53 @@ cmp_exact() {
   else bad "$label = $got\n        expected $want"; fi
 }
 
+# Verify that a recorded EVM deployment block is a safe event-index start block.
+# Comparing app/.env with deployments/*.json is circular when the deploy record
+# itself is wrong; querying historical code gives us an independent source of
+# truth. Foundry records the simulation head, so a small lead before the mined
+# creation block is normal. A large lead is an RPC-cost bug, while a late block can
+# silently skip constructor-block events.
+check_index_start_block() {
+  local label=$1 address=$2 block=$3 rpc=$4 code previous previous_code lookahead lookahead_code
+  local max_lead=1000
+
+  if ! printf '%s' "$block" | grep -qE '^[0-9]+$' || [ "$block" -le 0 ]; then
+    bad "$label deploymentBlock is not a positive decimal block: ${block:-unset}"
+    return
+  fi
+
+  if ! code=$(cast code "$address" --block "$block" --rpc-url "$rpc" 2>/dev/null); then
+    bad "$label: could not read historical code at recorded block $block"
+    return
+  fi
+
+  if [ -z "$code" ] || [ "$code" = 0x ] || [ "$code" = 0x0 ]; then
+    lookahead=$((block + max_lead))
+    if ! lookahead_code=$(cast code "$address" --block "$lookahead" --rpc-url "$rpc" 2>/dev/null); then
+      bad "$label: could not read historical code at block $lookahead"
+      return
+    fi
+    if [ -z "$lookahead_code" ] || [ "$lookahead_code" = 0x ] || [ "$lookahead_code" = 0x0 ]; then
+      bad "$label: no code at recorded block $block or within the next $max_lead blocks\n        the record may use the wrong RPC block-number domain and make event indexing unbounded"
+      return
+    fi
+    ok "$label index start block = $block ${DIM}(within $max_lead blocks before creation)${RST}"
+    return
+  fi
+
+  previous=$((block - 1))
+  if ! previous_code=$(cast code "$address" --block "$previous" --rpc-url "$rpc" 2>/dev/null); then
+    bad "$label: could not read historical code at block $previous"
+    return
+  fi
+  if [ -n "$previous_code" ] && [ "$previous_code" != 0x ] && [ "$previous_code" != 0x0 ]; then
+    bad "$label: code already existed at block $previous\n        recorded deployment block $block is too late and may skip events"
+    return
+  fi
+
+  ok "$label index start block = $block ${DIM}(exact creation block)${RST}"
+}
+
 # ---- source of truth ---------------------------------------------------------
 NATIVE_ASSET=0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE
 L1_CHAIN_ID=11155111
@@ -123,11 +174,12 @@ L1_REC="packages/contracts/deployments/${L1_CHAIN_ID}.json"
 CONTRACTS_ENV=packages/contracts/.env
 APP_ENV=app/.env
 
-# key|chainId|record|appPrefix|contractsEnvPrefix|kind
+# key|chainId|record|appPrefix|contractsEnvPrefix|kind|poolContractName
 DESTINATIONS="\
-op|11155420|packages/contracts/deployments/11155420.json|OP|OP_SEPOLIA|evm
-base|84532|packages/contracts/deployments/84532.json|BASE|BASE_SEPOLIA|evm
-starknet|0x534e5f5345504f4c4941|packages/starknet-pool/deployments/starknet-0x534e5f5345504f4c4941.json|STARKNET|STARKNET_SEPOLIA|starknet"
+op|11155420|packages/contracts/deployments/11155420.json|OP|OP_SEPOLIA|evm|L2PrivacyPool
+base|84532|packages/contracts/deployments/84532.json|BASE|BASE_SEPOLIA|evm|L2PrivacyPool
+arb|421614|packages/contracts/deployments/421614.json|ARB|ARB_SEPOLIA|evm|L2PrivacyPoolArbitrum
+starknet|0x534e5f5345504f4c4941|packages/starknet-pool/deployments/starknet-0x534e5f5345504f4c4941.json|STARKNET|STARKNET_SEPOLIA|starknet|StarknetPrivacyPool"
 
 printf "${BLD}Cutout deployment check${RST} ${DIM}(sepolia)${RST}\n"
 note "source of truth: deployments/*.json"
@@ -154,17 +206,13 @@ fi
 ok "L1 pool       $L1_POOL ${DIM}(block $L1_BLOCK)${RST}"
 ok "L1 entrypoint $ENTRYPOINT"
 
-while IFS='|' read -r key chain_id record app_prefix env_prefix kind; do
+while IFS='|' read -r key chain_id record app_prefix env_prefix kind pool_contract; do
   [ -n "$key" ] || continue
   if [ ! -f "$record" ]; then
     warn "$key not deployed (no $record)"
     continue
   fi
-  if [ "$kind" = starknet ]; then
-    addr=$(rec_get "$record" StarknetPrivacyPool address)
-  else
-    addr=$(rec_get "$record" L2PrivacyPool address)
-  fi
+  addr=$(rec_get "$record" "$pool_contract" address)
   if [ -n "$addr" ]; then ok "$key pool      $addr"
   else bad "$record has no pool entry"; fi
 done < <(printf '%s\n' "$DESTINATIONS")
@@ -174,14 +222,10 @@ section "2. Binding invariant (destination L1_POOL == canonical L1)"
 note "A destination binds its L1 pool immutably. Bound to the wrong L1, ETH bridges but the"
 note "note is rejected -- value is silently lost. This is the check that matters most."
 
-while IFS='|' read -r key chain_id record app_prefix env_prefix kind; do
+while IFS='|' read -r key chain_id record app_prefix env_prefix kind pool_contract; do
   [ -n "$key" ] || continue
   [ -f "$record" ] || { skip "$key not deployed"; continue; }
-  if [ "$kind" = starknet ]; then
-    bound=$(rec_get "$record" StarknetPrivacyPool l1Pool)
-  else
-    bound=$(rec_get "$record" L2PrivacyPool l1Pool)
-  fi
+  bound=$(rec_get "$record" "$pool_contract" l1Pool)
   if [ -z "$bound" ]; then
     warn "$key record does not state l1Pool -- cannot verify binding offline"
   elif [ "$(norm_addr "$bound")" = "$(norm_addr "$L1_POOL")" ]; then
@@ -199,14 +243,14 @@ else
   cmp_addr "L1_POOL_ADDRESS"    "$L1_POOL"    "$(env_get "$CONTRACTS_ENV" L1_POOL_ADDRESS)"
   cmp_addr "ENTRYPOINT_ADDRESS" "$ENTRYPOINT" "$(env_get "$CONTRACTS_ENV" ENTRYPOINT_ADDRESS)"
 
-  while IFS='|' read -r key chain_id record app_prefix env_prefix kind; do
+  while IFS='|' read -r key chain_id record app_prefix env_prefix kind pool_contract; do
     [ -n "$key" ] || continue
     [ -f "$record" ] || continue
     if [ "$kind" = starknet ]; then
-      want=$(rec_get "$record" StarknetPrivacyPool address)
+      want=$(rec_get "$record" "$pool_contract" address)
       cmp_felt "${env_prefix}_L2_POOL_FELT" "$want" "$(env_get "$CONTRACTS_ENV" "${env_prefix}_L2_POOL_FELT")"
     else
-      want=$(rec_get "$record" L2PrivacyPool address)
+      want=$(rec_get "$record" "$pool_contract" address)
       cmp_addr "${env_prefix}_L2_POOL_ADDRESS" "$want" "$(env_get "$CONTRACTS_ENV" "${env_prefix}_L2_POOL_ADDRESS")"
     fi
   done < <(printf '%s\n' "$DESTINATIONS")
@@ -223,12 +267,12 @@ else
   cmp_exact "DEPLOYMENT_BLOCK"   "$L1_BLOCK"    "$(env_get "$APP_ENV" DEPLOYMENT_BLOCK)"
   cmp_exact "CHAIN_ID"           "$L1_CHAIN_ID" "$(env_get "$APP_ENV" CHAIN_ID)"
 
-  while IFS='|' read -r key chain_id record app_prefix env_prefix kind; do
+  while IFS='|' read -r key chain_id record app_prefix env_prefix kind pool_contract; do
     [ -n "$key" ] || continue
     [ -f "$record" ] || { skip "$key not deployed"; continue; }
     if [ "$kind" = starknet ]; then
-      cmp_felt "STARKNET_POOL_ADDRESS"  "$(rec_get "$record" StarknetPrivacyPool address)" "$(env_get "$APP_ENV" STARKNET_POOL_ADDRESS)"
-      cmp_felt "STARKNET_ASSET_ADDRESS" "$(rec_get "$record" StarknetPrivacyPool asset)"   "$(env_get "$APP_ENV" STARKNET_ASSET_ADDRESS)"
+      cmp_felt "STARKNET_POOL_ADDRESS"  "$(rec_get "$record" "$pool_contract" address)" "$(env_get "$APP_ENV" STARKNET_POOL_ADDRESS)"
+      cmp_felt "STARKNET_ASSET_ADDRESS" "$(rec_get "$record" "$pool_contract" asset)"   "$(env_get "$APP_ENV" STARKNET_ASSET_ADDRESS)"
       # The Cairo record carries no deploymentBlock, so this can only be sanity-checked.
       sn_block=$(env_get "$APP_ENV" STARKNET_DEPLOYMENT_BLOCK)
       if [ -z "$sn_block" ] || [ "$sn_block" = 0 ]; then
@@ -237,8 +281,8 @@ else
         ok "STARKNET_DEPLOYMENT_BLOCK = $sn_block ${DIM}(absent from the record; not cross-checked)${RST}"
       fi
     else
-      cmp_addr  "${app_prefix}_POOL_ADDRESS"     "$(rec_get "$record" L2PrivacyPool address)"        "$(env_get "$APP_ENV" "${app_prefix}_POOL_ADDRESS")"
-      cmp_exact "${app_prefix}_DEPLOYMENT_BLOCK" "$(rec_get "$record" L2PrivacyPool deploymentBlock)" "$(env_get "$APP_ENV" "${app_prefix}_DEPLOYMENT_BLOCK")"
+      cmp_addr  "${app_prefix}_POOL_ADDRESS"     "$(rec_get "$record" "$pool_contract" address)"         "$(env_get "$APP_ENV" "${app_prefix}_POOL_ADDRESS")"
+      cmp_exact "${app_prefix}_DEPLOYMENT_BLOCK" "$(rec_get "$record" "$pool_contract" deploymentBlock)" "$(env_get "$APP_ENV" "${app_prefix}_DEPLOYMENT_BLOCK")"
       cmp_exact "${app_prefix}_CHAIN_ID"         "$chain_id"                                          "$(env_get "$APP_ENV" "${app_prefix}_CHAIN_ID")"
     fi
   done < <(printf '%s\n' "$DESTINATIONS")
@@ -252,7 +296,7 @@ note "only advertises keys listed in L2_EVM_CHAINS. That is exactly how Base sta
 if [ -f "$APP_ENV" ]; then
   EVM_CHAINS=$(lc "$(env_get "$APP_ENV" L2_EVM_CHAINS)")
 
-  while IFS='|' read -r key chain_id record app_prefix env_prefix kind; do
+  while IFS='|' read -r key chain_id record app_prefix env_prefix kind pool_contract; do
     [ -n "$key" ] || continue
     [ "$kind" = evm ] || continue
     [ -f "$record" ] || continue
@@ -387,7 +431,7 @@ if [ "$ONCHAIN" = 1 ]; then
 
     # Does the entrypoint actually route each destination to the pool we think it does?
     BRIDGE_SIG='getBridgeConfig(uint256,address)((uint8,bool,address,address,address,uint256,uint256,address,uint256,uint256,uint256,uint256,uint256,uint256))'
-    while IFS='|' read -r key chain_id record app_prefix env_prefix kind; do
+    while IFS='|' read -r key chain_id record app_prefix env_prefix kind pool_contract; do
       [ -n "$key" ] || continue
       [ -f "$record" ] || continue
 
@@ -406,21 +450,21 @@ if [ "$ONCHAIN" = 1 ]; then
         continue
       fi
       if [ "$kind" = starknet ]; then
-        want=$(rec_get "$record" StarknetPrivacyPool address)
+        want=$(rec_get "$record" "$pool_contract" address)
         # getBridgeConfig returns l2PoolFelt as a uint256, which cast renders in decimal;
         # the record stores it in hex. Convert to a common base before comparing.
         cfg_felt_hex=$(cast to-hex "$cfg_felt" 2>/dev/null)
         if [ "$(norm_felt "$want")" = "$(norm_felt "$cfg_felt_hex")" ]; then ok "$key: entrypoint routes to $want"
         else bad "$key: entrypoint routes to l2PoolFelt $cfg_felt ($cfg_felt_hex)\n        expected $want"; fi
       else
-        want=$(rec_get "$record" L2PrivacyPool address)
+        want=$(rec_get "$record" "$pool_contract" address)
         if [ "$(norm_addr "$want")" = "$(norm_addr "$cfg_pool")" ]; then ok "$key: entrypoint routes to $cfg_pool"
         else bad "$key: entrypoint routes to $cfg_pool\n        expected $want"; fi
       fi
     done < <(printf '%s\n' "$DESTINATIONS")
 
     # The immutable binding, read from the chain rather than trusted from the record.
-    while IFS='|' read -r key chain_id record app_prefix env_prefix kind; do
+    while IFS='|' read -r key chain_id record app_prefix env_prefix kind pool_contract; do
       [ -n "$key" ] || continue
       [ "$kind" = evm ] || continue
       [ -f "$record" ] || continue
@@ -429,12 +473,14 @@ if [ "$ONCHAIN" = 1 ]; then
       [ -z "$rpc" ] && rpc=$(env_get "$APP_ENV" "${upper}_RPC_URL")
       [ -z "$rpc" ] && { warn "$key: no RPC configured -- cannot read L1_POOL() on chain"; continue; }
 
-      pool=$(rec_get "$record" L2PrivacyPool address)
+      pool=$(rec_get "$record" "$pool_contract" address)
       code=$(cast code "$pool" --rpc-url "$rpc" 2>/dev/null)
       if [ -z "$code" ] || [ "$code" = 0x ]; then
         bad "$key: no code at $pool -- the record claims a deployment that is not on chain"
         continue
       fi
+      deployment_block=$(rec_get "$record" "$pool_contract" deploymentBlock)
+      check_index_start_block "$key pool" "$pool" "$deployment_block" "$rpc"
       bound=$(cast call "$pool" "L1_POOL()(address)" --rpc-url "$rpc" 2>/dev/null | awk '{print $1}')
       if [ -z "$bound" ]; then
         warn "$key: L1_POOL() call failed"

@@ -69,3 +69,28 @@ test("coalesces concurrent stream refreshes", async () => {
   assert.equal(await first, await second);
   assert.equal(calls, 1);
 });
+
+test("passes multiple selectors through one cached event stream", async () => {
+  const requests = [];
+  const provider = {
+    getBlockNumber: async () => 12,
+    getEvents: async (request) => {
+      requests.push(request);
+      return { events: [], continuation_token: undefined };
+    },
+  };
+  const index = new StarknetEventIndex();
+  const selectors = ["0xabc", "0xdef"];
+
+  await index.read({
+    ...params,
+    provider,
+    eventName: undefined,
+    selector: undefined,
+    eventNames: ["NoteReceived", "NoteActivated"],
+    selectors,
+  });
+
+  assert.equal(requests.length, 1);
+  assert.deepEqual(requests[0].keys, [selectors]);
+});

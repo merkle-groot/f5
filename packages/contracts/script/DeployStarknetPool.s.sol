@@ -7,11 +7,10 @@ import {console} from 'forge-std/console.sol';
 import {PrivacyPool} from 'contracts/PrivacyPool.sol';
 
 /**
- * @notice Redeploy the L1 PrivacyPool carrying the StarkGate native-ETH bridge fix.
+ * @notice Redeploy the L1 PrivacyPool carrying the StarkGate `depositWithMessage` flow.
  *
- * The pool is not upgradeable, so the `_bridgeStarknet` fix (use the ETH bridge's token-less
- * `deposit(amount, l2Recipient)` overload instead of passing `Constants.NATIVE_ASSET`, which
- * StarkGate rejects with `TOKEN_NOT_SERVICED`) requires a fresh deployment.
+ * The pool is not upgradeable, so changing `_bridgeStarknet` to atomically bridge backing and
+ * deliver the commitment requires a fresh deployment.
  *
  * Required env: DEPLOYER_ADDRESS, ENTRYPOINT_ADDRESS, WITHDRAWAL_VERIFIER, RAGEQUIT_VERIFIER, ASSET
  */
@@ -28,7 +27,7 @@ contract DeployStarknetPool is Script {
     vm.stopBroadcast();
 
     _pool = address(_p);
-    console.log('PrivacyPool (starknet-fixed):', _pool);
+    console.log('PrivacyPool (StarkGate message flow):', _pool);
     console.log('SCOPE:', _p.SCOPE());
   }
 }

@@ -120,6 +120,13 @@ function chainLabel(key) {
   return evmChains().find((c) => c.key === key)?.chainName ?? key;
 }
 
+/** Convert a bridge destination chain id into the route key used by the L2 note cache. */
+function destinationKey(chainId) {
+  const id = String(chainId);
+  if (id === STARKNET_CHAIN_ID) return "starknet";
+  return evmChains().find((chain) => String(chain.chainId) === id)?.key ?? id;
+}
+
 /*//////////////////////////////////////////////////////////////
                               RENDER
 //////////////////////////////////////////////////////////////*/
@@ -205,7 +212,13 @@ function bind() {
 
   app.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", (event) => {
     event.preventDefault();
+    const previousView = state.view;
     navigateVault(b.dataset.view);
+    // Withdraw consumes the Vault's shared scan results. Entering the workspace
+    // starts that one scanner; the left pane only reflects its loading state.
+    if (b.dataset.view === "receive" && previousView !== "receive") {
+      void guard(scanForNotes, "scan");
+    }
   }));
   on("#connect", "click", () => guard(connectWallet));
   on("#lock", "click", lockVault);
@@ -307,12 +320,12 @@ function bind() {
     navigateVault("send");
   }));
 
-  // Pick an actionable L2 note → open RECEIVE and refresh its on-chain status.
+  // Pick a spendable L2 note from the Withdraw workspace and refresh its status.
   app.querySelectorAll("[data-pick-l2]").forEach((el) => el.addEventListener("click", () => {
     captureForm();
     const r = state.receive;
     r.selected = el.dataset.pickL2;
-    r.proof = null; r.response = null;
+    r.status = null; r.proof = null; r.response = null;
     navigateVault("receive");
     guard(async () => { await refreshSelectedStatus(); });
   }));
@@ -527,16 +540,12 @@ function notesSection() {
       </div>
       ${scanProgressView()}
 
-      <div class="group-heading"><h3>L1 · ETHEREUM</h3></div>
-      ${notePreview("l1", l1Notes, l1NoteRow, showSpent ? "No L1 notes." : "No active L1 notes.", "Deposit, or scan to recover notes from your phrase.")}
+      ${l1Notes.length ? `
+        <div class="group-heading"><h3>L1 · ETHEREUM</h3></div>
+        ${notePreview("l1", l1Notes, l1NoteRow, "", "")}` : ""}
 
-      ${evmChains().map((c) => `
-        <div class="group-heading"><h3>L2 · ${escapeHtml(c.chainName)}</h3></div>
-        ${l2Group(c.key)}`).join("")}
-
-      ${state.starknet?.configured || l2List("starknet").length ? `
-        <div class="group-heading"><h3>L2 · STARKNET</h3></div>
-        ${l2Group("starknet")}` : ""}
+      ${evmChains().map((c) => l2VaultGroup(c.key, c.chainName)).join("")}
+      ${l2VaultGroup("starknet", "Starknet")}
     </section>`;
 }
 
@@ -589,34 +598,62 @@ function l1NoteRow(n) {
 
 function l2Group(chain) {
   const list = l2List(chain).filter((x) => state.notesUi.showSpent || x.status !== "withdrawn");
-  if (!list.length) {
-    const scanned = state.receive.scannedCount > 0;
-    const title = state.notesUi.showSpent ? "No notes here." : "No active notes here.";
-    return `<div class="note-empty">${title}<br><span>${scanned ? "Nothing else is addressed to you on this chain." : "Scan to search for shielded notes."}</span></div>`;
-  }
+  if (!list.length) return "";
   return notePreview(`l2-${chain}`, list, (x) => {
-    const actionable = x.status === "spendable" || x.status === "activate";
-    const attr = actionable ? `data-pick-l2="${x.id}" role="button" tabindex="0"` : "";
+    const availability = availabilityEstimate(x, chain);
     return `
-      <div class="vnote ${x.status === "withdrawn" ? "is-past" : ""}" ${attr}>
+      <div class="vnote ${x.status === "withdrawn" ? "is-past" : ""}">
         <span class="note-icon">${icons.eth}</span>
-        <div><strong>${formatEther(BigInt(x.value))} ETH</strong><small>${short(x.id)}</small></div>
+        <div><strong>${formatEther(BigInt(x.value))} ETH</strong><small>${short(x.id)}</small>${availability ? `<small class="note-eta">${escapeHtml(availability)}</small>` : ""}</div>
         ${pill(x.status)}
       </div>`;
   }, "", "");
+}
+
+function l2VaultGroup(chain, label) {
+  const notes = l2Group(chain);
+  if (!notes) return "";
+  return `<div class="group-heading"><h3>L2 · ${escapeHtml(String(label).toUpperCase())}</h3></div>${notes}`;
 }
 
 const PILL = {
   ready: ["READY", "ok"],
   spendable: ["SPENDABLE", "ok"],
   activate: ["ACTIVATING", "warn"],
-  pending: ["PENDING", "warn"],
+  pending: ["AWAITING L2", "warn"],
   withdrawn: ["WITHDRAWN ✓", "past"],
   spent: ["SPENT →", "past"],
 };
 function pill(status) {
   const [label, cls] = PILL[status] ?? ["?", "warn"];
   return `<span class="pill ${cls}">${label}</span>`;
+}
+
+/** Human ETA for an L2 note that is not spendable yet. */
+function availabilityEstimate(note, chain) {
+  if (note.status === "activate") return "LESS THAN 1 MIN LEFT";
+  if (note.status !== "pending") return "";
+
+  // Canonical L1→L2 delivery windows. Arbitrum contracts enter the delayed
+  // inbox; OP Stack routes settle faster, while StarkGate is usually ~5 min.
+  const chainId = String(evmChains().find((candidate) => candidate.key === chain)?.chainId ?? "");
+  const [minMinutes, maxMinutes] = ["42161", "42170", "421614"].includes(chainId) || chain === "arb"
+    ? [10, 15]
+    : chain === "starknet"
+      ? [3, 5]
+      : [2, 5];
+  const bridgedAt = Number(note.bridgedAt);
+  if (!Number.isFinite(bridgedAt) || bridgedAt <= 0) {
+    return `${minMinutes}–${maxMinutes} MIN LEFT`;
+  }
+
+  const minAt = bridgedAt + minMinutes * 60_000;
+  const maxAt = bridgedAt + maxMinutes * 60_000;
+  const minLeft = Math.max(0, Math.ceil((minAt - Date.now()) / 60_000));
+  const maxLeft = Math.max(0, Math.ceil((maxAt - Date.now()) / 60_000));
+  if (maxLeft === 0) return "EXPECTED ANY MOMENT · RUN SCAN TO REFRESH";
+  if (minLeft === 0) return `${maxLeft} MIN LEFT`;
+  return `${minLeft}–${maxLeft} MIN LEFT`;
 }
 
 /*//////////////////////////////////////////////////////////////
@@ -739,7 +776,7 @@ function homeView() {
       ${noticeView()}
       <div class="map-legend">
         <span><i class="legend-dot available"></i> AVAILABLE</span>
-        <span><i class="legend-dot pending"></i> PENDING ACTIVATION</span>
+        <span><i class="legend-dot pending"></i> BRIDGED ON L1 · AWAITING L2</span>
         <span><i class="legend-dot empty"></i> NO NOTES</span>
       </div>
       <div class="home-actions">
@@ -898,6 +935,19 @@ function sendView() {
 function receiveView() {
   const r = state.receive;
   const note = selectedNote();
+  const scanning = state.noteProgress === "scan";
+  const spendable = [...evmChains().map((chain) => chain.key), "starknet"].flatMap((chain) =>
+    l2List(chain).filter((candidate) => candidate.status === "spendable").map((candidate) => ({ ...candidate, chain })),
+  );
+  const scanNotice = typeof state.notice === "string" && state.notice.startsWith("Scan complete.")
+    ? state.notice.replace(/^Scan complete\.\s*/, "")
+    : null;
+  const noteOption = (candidate) => `<label class="bridge-option note-option" data-pick-l2="${candidate.id}">
+    <input type="radio" name="withdraw-note" value="${candidate.id}" ${String(r.selected) === candidate.id ? "checked" : ""} />
+    <span class="bridge-option-icon">${escapeHtml(chainInitials(chainLabel(candidate.chain)))}</span>
+    <span><b>${formatEther(BigInt(candidate.value))} ETH</b><small>${escapeHtml(chainLabel(candidate.chain))} · ${short(candidate.id)}</small></span>
+    <span class="pill ok">SPENDABLE</span>
+  </label>`;
   const st = r.status?.state;
   const action = state.busy
     ? (r.proof ? "SUBMITTING WITHDRAWAL…" : st === "activated" ? "PROVING… THIS CAN TAKE A MINUTE" : "WORKING…")
@@ -910,16 +960,19 @@ function receiveView() {
 
   return `
     <section class="panel flow-panel">
-      ${flowHead("L2 · DESTINATION", "WITHDRAW A NOTE", "Scan for notes addressed to you, select one, then land it in your account.")}
+      ${flowHead("L2 · DESTINATION", "WITHDRAW A NOTE", "Scan for notes addressed to you, choose a spendable note below, then land it in your account.")}
       ${withdrawFlowDiagram(note)}
-      ${noticeView()}
-      <div class="notice pink-card"><strong>${r.scannedCount ? `SCANNED ${r.scannedCount} NOTE${r.scannedCount === 1 ? "" : "S"}` : "NOT SCANNED YET"}</strong><span>${r.scanned.length ? `${r.scanned.length} addressed to you. Pick one from the Vault.` : "Everything is fetched and matched in this browser; the relayer never learns which note is yours."}</span></div>
-      <div class="key-actions"><button data-scan class="secondary-btn" ${state.busy ? "disabled" : ""}>${progressLabel(state.noteProgress === "scan", "SCAN NOW", "SCANNING")}</button></div>
-      ${scanProgressView()}
+      ${scanNotice ? "" : noticeView()}
+      ${scanning
+        ? `<div class="notice pink-card withdraw-scan-loader" role="status" aria-live="polite"><strong>${progressLabel(true, "", "SCANNING VAULT")}</strong><span>Checking the Vault's L1 and destination routes. Spendable notes will appear here when the scan finishes.</span></div>`
+        : `<div class="notice pink-card"><strong>${scanNotice ? "SCAN COMPLETE" : r.scannedCount ? `SCANNED ${r.scannedCount} NOTE${r.scannedCount === 1 ? "" : "S"}` : "VAULT NOT SCANNED YET"}</strong><span>${scanNotice ? `${escapeHtml(scanNotice)} ${spendable.length} spendable now.` : r.scanned.length ? `${r.scanned.length} addressed to you · ${spendable.length} spendable now.` : "Use SCAN in the Vault to refresh notes. Matching happens only in this browser; the relayer never learns which note is yours."}</span></div>
+          <fieldset class="bridge-choice note-choice"><legend>SPENDABLE L2 NOTES</legend>
+            ${spendable.length ? spendable.map(noteOption).join("") : `<div class="note-empty">No spendable L2 notes.<br><span>Use SCAN in the Vault to refresh destination confirmations.</span></div>`}
+          </fieldset>`}
       ${note ? `
         <div class="flow-step active"><span class="flow-number">▸</span><div><span class="eyebrow">SELECTED</span><h3>${formatEther(note.value)} ETH · ${chainLabel(note.chain)}</h3><p>${statusLabel(st)}</p></div></div>
         <label class="input-label">FINAL RECIPIENT ${note.chain === "starknet" ? "(STARKNET FELT252)" : "ADDRESS"}<input id="recv-recipient" placeholder="${note.chain === "starknet" ? "0x… or decimal felt252" : "0x… where the funds actually land"}" value="${escapeHtml(r.recipient)}" /></label>`
-        : `<div class="note-empty">Pick a note from the Vault to withdraw it.</div>`}
+        : ""}
       <div class="notice ${r.response ? "teal-card" : "pink-card"}">
         <strong>${r.response ? "FUNDS RELEASED" : r.proof ? "L2 PROOF READY" : "AUTOMATIC ACTIVATION"}</strong>
         <span>${r.response ? "The destination pool released the note to your address."
@@ -958,7 +1011,7 @@ function starknetWarning() {
 function statusLabel(st) {
   return st === "activated" ? "activated · ready to prove"
     : st === "received-pending-activation" ? "bridged · relayer activation pending"
-    : st === "bridge-pending" ? "waiting for the bridge"
+    : st === "bridge-pending" ? "bridged on L1 · awaiting confirmation on L2"
     : "checking status…";
 }
 
@@ -982,7 +1035,12 @@ function l2List(chain) {
     if (n.chain !== chain) continue;
     const id = String(n.cDest);
     seen.add(id);
-    out.push({ id, value: n.value.toString(), status: state.withdrawn[id] ? "withdrawn" : (n._status ?? "activate") });
+    out.push({
+      id,
+      value: n.value.toString(),
+      status: state.withdrawn[id] ? "withdrawn" : (n._status ?? "activate"),
+      bridgedAt: n.bridgedAt ?? null,
+    });
   }
   for (const [id, w] of Object.entries(state.withdrawn)) {
     if (w.chain !== chain || seen.has(id)) continue;
@@ -1016,6 +1074,32 @@ function deriveL2Status(note, index) {
   const hit = (index?.proofs ?? []).find((p) => String(p.commitment) === String(note.cDest));
   if (hit && Number(hit.index) >= 0) return "spendable";
   return "activate";
+}
+
+/**
+ * Surface a self-bridge as soon as its L1 relay succeeds. The encrypted cache
+ * already stores the recipient's spend material, so the note can be upgraded
+ * in place when a later scan observes it on the destination.
+ */
+async function rememberPendingSelfBridge(draft) {
+  if (!draft.selfNote) return;
+  const pending = {
+    ...draft.selfNote,
+    chain: destinationKey(draft.withdrawal.chainId),
+    _status: "pending",
+    bridgedAt: Date.now(),
+  };
+  const id = String(pending.cDest);
+  const existing = state.receive.scanned.findIndex(
+    (note) => note.chain === pending.chain && String(note.cDest) === id,
+  );
+  if (existing < 0) state.receive.scanned.push(pending);
+  else if (state.receive.scanned[existing]._status === "pending") state.receive.scanned[existing] = pending;
+  state.receive.scannedCount = Math.max(state.receive.scannedCount, state.receive.scanned.length);
+  await saveL2Scan(state.identity.vaultKey, state.config.scope, {
+    notes: state.receive.scanned,
+    scannedCount: state.receive.scannedCount,
+  });
 }
 
 /*//////////////////////////////////////////////////////////////
@@ -1597,15 +1681,30 @@ async function scanForNotes() {
     throw new Error(failures.map(({ step, error }) => `${step.label}: ${describeError(error)}`).join(" · ") || "Scan could not start.");
   }
 
+  // A self-bridge confirmed on L1 must remain visible while its L2 delivery is
+  // still in flight. A successful scan replaces it with the live destination
+  // note (same chain + C_dest); until then, preserve the encrypted pending entry.
+  const seen = new Set(r.scanned.map((note) => `${note.chain}:${note.cDest}`));
+  for (const note of previousScanned) {
+    const id = `${note.chain}:${note.cDest}`;
+    if (note._status === "pending" && !seen.has(id)) {
+      r.scanned.push(note);
+      seen.add(id);
+    }
+  }
+  r.scannedCount = Math.max(r.scannedCount, previousScannedCount, r.scanned.length);
+
   // A transient failure on one destination must not erase that chain's last
   // encrypted cache. Successful routes replace their notes; failed routes keep
   // their previous matches until they can be refreshed.
   const failedChains = new Set(failures.map(({ step }) => step.key).filter((key) => key !== "l1"));
   if (failedChains.size) {
-    const seen = new Set(r.scanned.map((note) => `${note.chain}:${note.cDest}`));
     for (const note of previousScanned) {
       const id = `${note.chain}:${note.cDest}`;
-      if (failedChains.has(note.chain) && !seen.has(id)) r.scanned.push(note);
+      if (failedChains.has(note.chain) && !seen.has(id)) {
+        r.scanned.push(note);
+        seen.add(id);
+      }
     }
     r.scannedCount = Math.max(r.scannedCount, previousScannedCount, r.scanned.length);
   }
@@ -1817,8 +1916,9 @@ async function runSend() {
     // The spent note is gone from the pool's perspective; mark it as history
     // rather than deleting it, so the portfolio can show what left.
     const spent = state.notes.find((n) => n.commitment === draft.selected.commitment);
-    if (spent) { spent.status = "spent"; spent.spentTo = String(send.destinationChainId); }
+    if (spent) { spent.status = "spent"; spent.spentTo = String(draft.withdrawal.chainId); }
     await saveNotes(state.identity.vaultKey, state.config.scope, state.notes);
+    await rememberPendingSelfBridge(draft);
     return;
   }
 
@@ -1849,6 +1949,7 @@ async function runSend() {
     method: "POST", headers: { "content-type": "application/json" },
     body: jsonBody({
       chainId: state.config.chainId,
+      destinationChainId: send.destinationChainId,
       amount: selected.value,
       asset: state.config.asset,
       // The SENDER's address. This lands in the public `WithdrawalRelayed` event,
@@ -1905,7 +2006,19 @@ async function runSend() {
   );
   if (!(await pool.verifyWithdrawalL1(proof))) throw new Error("L1 proof verification failed.");
 
-  send.draft = { selected, destNote, bridgedValue, withdrawal, feeCommitment: quote.feeCommitment, scope: state.config.scope, proof, relayed: null };
+  // A self-bridge can be represented in the encrypted L2 cache immediately
+  // after the L1 relay. Derive the same recipient-side spend material a later
+  // scan will return, but do not mark it spendable until L2 confirms it.
+  const [selfNote] = send.recipientMode === "self"
+    ? notes.scanL2Notes([{
+        commitment: destNote.cDest,
+        value: bridgedValue,
+        ephemeralKey: destNote.ephemeralKey,
+        viewTag: `0x${destNote.viewTag.toString(16).padStart(2, "0")}`,
+      }], state.identity.shielded)
+    : [];
+
+  send.draft = { selected, destNote, selfNote, bridgedValue, withdrawal, feeCommitment: quote.feeCommitment, scope: state.config.scope, proof, relayed: null };
 }
 
 async function runReceive() {
@@ -2051,3 +2164,8 @@ async function boot() {
 
 boot();
 window.addEventListener("popstate", render);
+window.setInterval(() => {
+  if (!state.identity || state.busy || !state.receive.scanned.some((note) => note._status === "pending")) return;
+  captureForm();
+  render();
+}, 60_000);

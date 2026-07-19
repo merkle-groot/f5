@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { EventIndex, KeyedConcurrencyLimiter } from "./event-index.mjs";
+import { EventIndex, KeyedConcurrencyLimiter, rpcConcurrency } from "./event-index.mjs";
 
 function makeRuntime({ head = 15n, dataset = [] } = {}) {
   const calls = [];
@@ -41,6 +41,33 @@ test("indexes in chunks and performs no log call when the head is unchanged", as
   assert.equal((await index.read(params)).length, 2);
   assert.equal(runtime.calls.length, 2);
   assert.equal(runtime.metrics.cache.eventHits, 1);
+});
+
+test("passes multiple event signatures through one cached log stream", async () => {
+  const requests = [];
+  const runtime = makeRuntime();
+  runtime.client = () => ({
+    getLogs: async (request) => {
+      requests.push(request);
+      return [];
+    },
+  });
+  const events = [
+    { type: "event", name: "NoteReceived", inputs: [] },
+    { type: "event", name: "NoteActivated", inputs: [] },
+  ];
+  const index = new EventIndex({ runtime, chunkBlocks: 10n });
+
+  await index.read({
+    ...params,
+    event: undefined,
+    events,
+    eventKey: "NoteReceived|NoteActivated",
+  });
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].events, events);
+  assert.equal("event" in requests[0], false);
 });
 
 test("rolls back and replaces logs in the reorg window", async () => {
@@ -105,4 +132,27 @@ test("serializes log requests from different streams on the same chain", async (
     index.read({ ...params, eventKey: "Withdrawn", event: { ...params.event, name: "Withdrawn" } }),
   ]);
   assert.equal(maxActive, 1);
+});
+
+test("rpcConcurrency prefers the canonical name shared with the relayer", () => {
+  assert.equal(rpcConcurrency({ RPC_CONCURRENCY: "4" }), 4);
+});
+
+test("rpcConcurrency defaults to 1 when unset", () => {
+  assert.equal(rpcConcurrency({}), 1);
+});
+
+test("rpcConcurrency still honours the app's legacy name", () => {
+  // Dropping it silently would revert an existing deployment's tuning to 1.
+  assert.equal(rpcConcurrency({ RPC_LOG_CONCURRENCY: "6" }), 6);
+});
+
+test("rpcConcurrency lets the canonical name win over the legacy one", () => {
+  assert.equal(rpcConcurrency({ RPC_CONCURRENCY: "2", RPC_LOG_CONCURRENCY: "9" }), 2);
+});
+
+test("a non-numeric limit falls back to serial rather than NaN", () => {
+  // Math.max(1, NaN) is NaN, and `active >= NaN` is always false — an unbounded
+  // limiter that looks configured.
+  assert.equal(new KeyedConcurrencyLimiter("nonsense").limit, 1);
 });

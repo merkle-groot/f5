@@ -8,6 +8,7 @@
 #   L1_POOL_ADDRESS      L1 pool address as a felt (the l1_handler `from_address`; placeholder ok
 #                        pre-Stage-3, set the real L1 pool before the end-to-end run)
 #   SN_ASSET_ADDRESS     L2 ERC20 the pool holds (StarkGate-bridged token) as a felt
+#   SN_TOKEN_BRIDGE_ADDRESS StarkGate L2 token bridge authorized to invoke `on_receive`
 # Optional env:
 #   SN_MAX_RELAY_FEE_BPS max relay fee bps (default 100)
 #   SN_VERIFY_FIXTURE    if set to 1, also runs an on-chain groth16 verify with the spike fixture
@@ -35,6 +36,7 @@ fi
 : "${SN_RPC:?set SN_RPC}"
 : "${L1_POOL_ADDRESS:?set L1_POOL_ADDRESS (felt)}"
 : "${SN_ASSET_ADDRESS:?set SN_ASSET_ADDRESS (L2 ERC20 felt)}"
+: "${SN_TOKEN_BRIDGE_ADDRESS:?set SN_TOKEN_BRIDGE_ADDRESS (StarkGate L2 token bridge felt)}"
 MAX_BPS="${SN_MAX_RELAY_FEE_BPS:-100}"
 
 # `--json` is a GLOBAL sncast flag (it must precede the subcommand); passing it after
@@ -96,10 +98,10 @@ V_ADDR=$("${SNCAST[@]}" deploy --url "$SN_RPC" --class-hash "$V_CLASS" | jqf con
 echo "   verifier class=$V_CLASS addr=$V_ADDR"
 
 echo "== declare + deploy pool =="
-# ctor: (l1_pool: felt, asset: ContractAddress, withdrawal_verifier: ContractAddress, max_relay_fee_bps: u256[low,high])
+# ctor: (l1_pool, asset, token_bridge, withdrawal_verifier, max_relay_fee_bps: u256[low,high])
 P_CLASS=$(declare_class StarknetPrivacyPool)
 P_ADDR=$("${SNCAST[@]}" deploy --url "$SN_RPC" --class-hash "$P_CLASS" \
-  --constructor-calldata "$L1_POOL_ADDRESS" "$SN_ASSET_ADDRESS" "$V_ADDR" "$MAX_BPS" 0 | jqf contract_address)
+  --constructor-calldata "$L1_POOL_ADDRESS" "$SN_ASSET_ADDRESS" "$SN_TOKEN_BRIDGE_ADDRESS" "$V_ADDR" "$MAX_BPS" 0 | jqf contract_address)
 echo "   pool class=$P_CLASS addr=$P_ADDR"
 
 CHAIN_ID=$(python3 -c "import urllib.request,json;print(json.load(urllib.request.urlopen(urllib.request.Request('$SN_RPC',json.dumps({'jsonrpc':'2.0','id':1,'method':'starknet_chainId','params':[]}).encode(),{'Content-Type':'application/json'})))['result'])")
@@ -107,12 +109,12 @@ SCOPE=$("${SNCAST[@]}" call --url "$SN_RPC" --contract-address "$P_ADDR" --funct
 
 mkdir -p deployments
 OUT="deployments/starknet-${CHAIN_ID}.json"
-python3 - "$OUT" "$CHAIN_ID" "$V_ADDR" "$P_ADDR" "$SN_ASSET_ADDRESS" "$L1_POOL_ADDRESS" "$V_CLASS" "$P_CLASS" <<'PY'
+python3 - "$OUT" "$CHAIN_ID" "$V_ADDR" "$P_ADDR" "$SN_ASSET_ADDRESS" "$SN_TOKEN_BRIDGE_ADDRESS" "$L1_POOL_ADDRESS" "$V_CLASS" "$P_CLASS" <<'PY'
 import json,sys
-out,chain,v,p,asset,l1,vc,pc=sys.argv[1:9]
+out,chain,v,p,asset,token_bridge,l1,vc,pc=sys.argv[1:10]
 json.dump({"chainId":chain,"contracts":[
  {"name":"Groth16VerifierBN254","address":v,"classHash":vc},
- {"name":"StarknetPrivacyPool","address":p,"classHash":pc,"asset":asset,"l1Pool":l1},
+ {"name":"StarknetPrivacyPool","address":p,"classHash":pc,"asset":asset,"tokenBridge":token_bridge,"l1Pool":l1},
 ]}, open(out,"w"), indent=2)
 print("wrote",out)
 PY

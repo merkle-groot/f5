@@ -2,12 +2,18 @@
 pragma solidity 0.8.28;
 
 import {Script} from 'forge-std/Script.sol';
-import {console} from 'forge-std/console.sol';
 import {VmSafe} from 'forge-std/Vm.sol';
+import {console} from 'forge-std/console.sol';
 
-import {Constants} from 'contracts/lib/Constants.sol';
 import {L2PrivacyPoolArbitrum} from 'contracts/L2/L2PrivacyPoolArbitrum.sol';
+import {Constants} from 'contracts/lib/Constants.sol';
 import {L2WithdrawalVerifier} from 'contracts/verifiers/L2WithdrawalVerifier.sol';
+
+/// @notice Arbitrum system precompile. `block.number` exposes the parent-chain block number on
+///         Arbitrum, while event RPCs use this L2 block number.
+interface IArbSys {
+  function arbBlockNumber() external view returns (uint256);
+}
 
 /**
  * @notice Deploy the destination-side Mode-3 pool on an Arbitrum L2.
@@ -26,6 +32,8 @@ import {L2WithdrawalVerifier} from 'contracts/verifiers/L2WithdrawalVerifier.sol
  * - <L2_TARGET>_MAX_RELAY_FEE_BPS (defaults to 100)
  */
 contract DeployL2Arbitrum is Script {
+  address internal constant ARB_SYS = address(100);
+
   function run() external returns (address _pool, address _verifier) {
     address _deployer = vm.envAddress('DEPLOYER_ADDRESS');
     address _l1Pool = vm.envAddress('L1_POOL_ADDRESS');
@@ -37,12 +45,8 @@ contract DeployL2Arbitrum is Script {
 
     vm.startBroadcast(_deployer);
     L2WithdrawalVerifier _withdrawalVerifier = new L2WithdrawalVerifier();
-    L2PrivacyPoolArbitrum _l2Pool = new L2PrivacyPoolArbitrum(
-      _asset,
-      _l1Pool,
-      address(_withdrawalVerifier),
-      _maxRelayFeeBPS
-    );
+    L2PrivacyPoolArbitrum _l2Pool =
+      new L2PrivacyPoolArbitrum(_asset, _l1Pool, address(_withdrawalVerifier), _maxRelayFeeBPS);
     vm.stopBroadcast();
 
     _verifier = address(_withdrawalVerifier);
@@ -57,7 +61,14 @@ contract DeployL2Arbitrum is Script {
     console.log('L2 chain id:', block.chainid);
   }
 
+  function _arbitrumBlockNumber() internal view returns (uint256) {
+    return IArbSys(ARB_SYS).arbBlockNumber();
+  }
+
   function _saveDeploymentData(address _pool, address _verifier, address _asset, address _l1Pool) internal {
+    // Solidity's `block.number` is the parent-chain block number on Arbitrum. The app feeds this
+    // value to eth_getLogs, which expects the L2 RPC block-number domain, so read ArbSys instead.
+    uint256 _deploymentBlock = _arbitrumBlockNumber();
     string memory _json = string.concat(
       '{"chainId":',
       vm.toString(block.chainid),
@@ -67,14 +78,14 @@ contract DeployL2Arbitrum is Script {
       '","deployer":"',
       vm.toString(vm.envAddress('DEPLOYER_ADDRESS')),
       '","deploymentBlock":',
-      vm.toString(block.number),
+      vm.toString(_deploymentBlock),
       '},',
       '{"name":"L2PrivacyPoolArbitrum","address":"',
       vm.toString(_pool),
       '","deployer":"',
       vm.toString(vm.envAddress('DEPLOYER_ADDRESS')),
       '","deploymentBlock":',
-      vm.toString(block.number),
+      vm.toString(_deploymentBlock),
       ',"scope":',
       vm.toString(L2PrivacyPoolArbitrum(payable(_pool)).SCOPE()),
       ',"asset":"',

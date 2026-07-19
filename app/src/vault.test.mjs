@@ -30,6 +30,7 @@ test("L2 scan cache round-trips bigint spend material under the current scope", 
     nullifier: 505n,
     chain: "base",
     _status: "spendable",
+    bridgedAt: 1_753_009_200_000,
   };
 
   await saveL2Scan(vaultKey, "scope-a", { notes: [note], scannedCount: 9 });

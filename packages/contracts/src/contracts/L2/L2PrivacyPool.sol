@@ -143,6 +143,11 @@ contract L2PrivacyPool is ReentrancyGuard, IL2PrivacyPool {
 
     emit NoteReceived(_commitmentHash, _value);
 
+    // Native Arbitrum carries backing in this same payable retryable ticket instead
+    // of calling `receive`. Emit the same signal used by OP-Stack's separate native
+    // bridge delivery so off-chain activation can be fully event-driven.
+    if (IS_NATIVE && msg.value != 0) emit BackingReceived(msg.value, tokensReceivedFromBridge());
+
     // Activate immediately if the bridged tokens have already landed
     _tryActivate(_commitmentHash);
   }
@@ -338,5 +343,9 @@ contract L2PrivacyPool is ReentrancyGuard, IL2PrivacyPool {
   }
 
   /// @notice Accept native asset delivered by the L2 standard bridge
-  receive() external payable {}
+  receive() external payable {
+    // Any native value held by the pool is real backing regardless of sender. This
+    // mirrors `tokensReceivedFromBridge`, which is balance based by construction.
+    if (IS_NATIVE && msg.value != 0) emit BackingReceived(msg.value, tokensReceivedFromBridge());
+  }
 }

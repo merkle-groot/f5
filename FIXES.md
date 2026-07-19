@@ -436,19 +436,18 @@ safe to send to (§14). That read was **one-shot with no retry**: a single failu
 actually *matched* (`POOL_ADDRESS` == the pool's `l1_pool`, both `0xf913ab5e…`). The trigger was
 Infura's `-32603 service temporarily unavailable` blips.
 
-Two entangled facts made this confusing to diagnose:
+Two entangled facts made this confusing to diagnose at the time:
 
-- **Infura Starknet serves JSON-RPC spec 0.8.1; Alchemy v0.10 serves 0.10.3.** The app runs
-  starknet.js 6.x, which speaks 0.8.x — so the *app runtime* must stay on Infura. Alchemy is for the
-  Cairo *deploy* tooling (sncast demands 0.10.x). They are deliberately different nodes; "unifying"
-  them breaks the write path.
+- **Infura Starknet served JSON-RPC spec 0.8.1 while the deployment node served 0.10.x.** The app
+  then ran starknet.js 6.x, so the runtime and Cairo deployment tooling needed different nodes.
 - Alchemy additionally rejects the default `pending` block tag in `getStorageAt` with
   `-32602 Invalid block id`, so naively "switch to Alchemy" swaps one failure for another.
 
 **Fixed** in `getStarknetBoundL1Pool` (`app/server/index.mjs`): wrap the read in the existing
 `withRetry` so a transient blip no longer fail-closes the destination, and pin the query to `latest`
 (the slot is immutable, so `latest` == `pending`, and `latest` works on every provider). Runtime
-`STARKNET_RPC_URL` kept on Infura.
+`STARKNET_RPC_URL` initially stayed on Infura. The later upgrade to starknet.js 10.0.2 added native
+RPC 0.10.2 support, so the runtime and deployment tooling can now share a compatible endpoint.
 
 ---
 

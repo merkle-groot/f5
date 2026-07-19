@@ -1,28 +1,79 @@
 {
   "defaults": {
     "fee_receiver_address": "0x0000000000000000000000000000000000000000",
-    "signer_private_key": "0xac0974bec39a17e36ba4a6b3d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    "entrypoint_address": "0x0000000000000000000000000000000000000000"
+    "entrypoint_address": "0x4113f1b88fecc9097303ac011d03335979e7ba9f"
   },
   "chains": [
     {
       "chain_id": 11155111,
       "chain_name": "Sepolia",
-      "rpc_url": "https://sepolia.infura.io/v3/your_infura_project_id",
       "max_gas_price": "50000000000",
-      "native_currency": { "name": "Sepolia Ether", "symbol": "ETH", "decimals": 18 },
-      "entrypoint_address": "0x157b0c29d676bbbfd3d8a3fb8c4979a5b5eaa793",
+      "native_currency": {
+        "name": "Sepolia Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      },
+      "entrypoint_address": "0x4113f1b88fecc9097303ac011d03335979e7ba9f",
       "asp_pools": [
-        { "pool_address": "0x8d508e422ed2bc102ba364875d2d83c172dc2288", "start_block": 11257510 }
+        {
+          "pool_address": "0xf913AB5e2b0dD32ba2ff4969962919834f954c10",
+          "start_block": 11304773
+        }
       ],
       "supported_assets": [
         {
           "asset_address": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
           "asset_name": "Sepolia Ether",
-          "fee_bps": "30",
+          "fee_bps": "10",
           "min_withdraw_amount": "0"
         }
       ]
+    }
+  ],
+  "destinations": [
+    {
+      "family": "evm",
+      "key": "op",
+      "chain_id": 11155420,
+      "chain_name": "OP Sepolia",
+      "pool_address": "0x002f4910DDFA5d081c3612fc88d8AF9F92Cd97A2",
+      "native_currency": {
+        "name": "Sepolia Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      }
+    },
+    {
+      "family": "evm",
+      "key": "base",
+      "chain_id": 84532,
+      "chain_name": "Base Sepolia",
+      "pool_address": "0xeEEd6485A583D197F2F5805AdE7Ec6ECBcDA833D",
+      "native_currency": {
+        "name": "Sepolia Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      }
+    },
+    {
+      "family": "evm",
+      "key": "arb",
+      "chain_id": 421614,
+      "chain_name": "Arbitrum Sepolia",
+      "pool_address": "0x320c4C5e0C58A75f968FfC082f560F77B8299079",
+      "native_currency": {
+        "name": "Sepolia Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      }
+    },
+    {
+      "family": "starknet",
+      "key": "starknet",
+      "chain_id": "393402133025997798000961",
+      "chain_name": "Starknet Sepolia",
+      "pool_address": "0x053cc08c203ce5935aeef9674a1afcff74bc4d7acc69e9a1146f9b14df8647a0",
+      "relayer_address": "0x0000000000000000000000000000000000000000000000000000000000000000"
     }
   ],
   "sqlite_db_path": "./data/relayer.sqlite",

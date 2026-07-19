@@ -59,6 +59,16 @@ interface IL2PrivacyPool {
   event NoteActivated(uint256 indexed _commitment, uint256 _value);
 
   /**
+   * @notice Emitted when native bridge backing is credited to the pool
+   * @dev There is deliberately no commitment field: note delivery and backing delivery are
+   *      independent and unordered on OP-Stack. ERC20 destinations use the token contract's
+   *      canonical `Transfer` event because an ERC20 transfer does not execute recipient code.
+   * @param _value Native value credited by this delivery
+   * @param _totalReceived Cumulative bridge backing after this delivery
+   */
+  event BackingReceived(uint256 _value, uint256 _totalReceived);
+
+  /**
    * @notice Emitted when a note is spent and its value exits to a clear recipient
    * @param _recipient The recipient of the withdrawn funds
    * @param _spentNullifier The spent nullifier

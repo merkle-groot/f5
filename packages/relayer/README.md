@@ -24,14 +24,16 @@ yarn install
 
 You must set the following environment variables before running:
 
-| Variable              | Purpose                                             |
-| --------------------- | --------------------------------------------------- |
-| `INFURA_API_KEY`      | For accessing Sepolia RPC (and Uniswap quoting)     |
-| `RPC_URL`             | RPC URL fallback if not configured in `config.json` |
-| `RELAYER_PRIVATE_KEY` | Private key used to sign fee commitments            |
-| `SQLITE_DB_PATH`      | (optional) Override path to SQLite DB               |
+| Variable                        | Purpose                                        |
+| ------------------------------- | ---------------------------------------------- |
+| `CONFIG_PATH`                   | JSON configuration file to load                |
+| `CHAIN_<CHAIN_ID>_RPC_URL`      | RPC endpoint for every entry in `chains`       |
+| `DESTINATION_<KEY>_RPC_URL`     | RPC endpoint for every entry in `destinations` |
+| `RELAYER_PRIVATE_KEY`           | Private key used to sign L1 fee commitments    |
+| `DESTINATION_<KEY>_PRIVATE_KEY` | Private key used to sign for a destination     |
 
-*(You can create a `.env` file locally if you prefer.)*
+Copy `.env.example` to `.env` and fill in these values locally. RPC URLs are never read from the
+JSON configuration.
 
 ## 3. Build and Start
 
@@ -56,7 +58,6 @@ yarn docker:run
 
 # Configuration
 
-
 ### Important Considerations for Relayer Fee Setup
 
 When configuring your relayer, keep the following in mind:
@@ -69,15 +70,14 @@ When configuring your relayer, keep the following in mind:
   - This "effective" fee is dynamically adjusted upwards if gas prices spike.
 - If the value withdrawn is too small and the relayer cannot achieve at least the configured margin, the transaction will be **rejected**.
 
-TLDR: fee_bps will be your profit over the withdrawn value. If the value is too small to cover the tx_fees and the relayer cut, it will reject the tx. 
+TLDR: fee_bps will be your profit over the withdrawn value. If the value is too small to cover the tx_fees and the relayer cut, it will reject the tx.
 
 ---
 
+The relayer uses a `config.json` file to manage chains, assets, fees, and operational settings.
+RPC URLs are required environment variables and are deliberately not stored in this JSON file.
 
-The relayer uses a `config.json` file to manage chains, assets, fees, and operational settings. 
-
-For setting up your config, use config.example.json as a basic template. 
-
+For setting up your config, use config.example.json as a basic template.
 
 ## Configuration Reference
 
@@ -90,23 +90,23 @@ Below is the complete description of all fields, their types, and behaviors.
 
 ### Top-Level Fields
 
-| Field | Type | Required | Description |
-|:------|:-----|:---------|:------------|
-| `defaults` | Object | Yes | Default addresses and private keys for all chains unless overridden. |
-| `chains` | Array of Objects | Yes | List of supported chains and their specific settings. |
-| `sqlite_db_path` | String (absolute or relative path) | Yes | Path to the SQLite database file. |
-| `cors_allow_all` | Boolean | Yes (default: `false`) | Whether to allow all CORS origins or restrict to allowed domains. |
-| `allowed_domains` | Array of Strings (URLs) | Yes | List of allowed CORS domains if `cors_allow_all` is false. |
+| Field             | Type                               | Required               | Description                                                          |
+| :---------------- | :--------------------------------- | :--------------------- | :------------------------------------------------------------------- |
+| `defaults`        | Object                             | Yes                    | Default addresses and private keys for all chains unless overridden. |
+| `chains`          | Array of Objects                   | Yes                    | List of supported chains and their specific settings.                |
+| `sqlite_db_path`  | String (absolute or relative path) | Yes                    | Path to the SQLite database file.                                    |
+| `cors_allow_all`  | Boolean                            | Yes (default: `false`) | Whether to allow all CORS origins or restrict to allowed domains.    |
+| `allowed_domains` | Array of Strings (URLs)            | Yes                    | List of allowed CORS domains if `cors_allow_all` is false.           |
 
 ---
 
 ### `defaults` Object
 
-| Field | Type | Required | Description |
-|:------|:-----|:---------|:------------|
-| `fee_receiver_address` | String (0x-prefixed address) | Yes | Address where relayer fees are collected. |
-| `signer_private_key` | String (0x-prefixed private key) | Yes | Private key used to sign fee commitments. |
-| `entrypoint_address` | String (0x-prefixed address) | Yes | Entrypoint contract address for relayer operations. |
+| Field                  | Type                             | Required | Description                                         |
+| :--------------------- | :------------------------------- | :------- | :-------------------------------------------------- |
+| `fee_receiver_address` | String (0x-prefixed address)     | Yes      | Address where relayer fees are collected.           |
+| `signer_private_key`   | String (0x-prefixed private key) | Yes      | Private key used to sign fee commitments.           |
+| `entrypoint_address`   | String (0x-prefixed address)     | Yes      | Entrypoint contract address for relayer operations. |
 
 ---
 
@@ -114,27 +114,27 @@ Below is the complete description of all fields, their types, and behaviors.
 
 Each entry represents a supported chain configuration.
 
-| Field | Type | Required | Description |
-|:------|:-----|:---------|:------------|
-| `chain_id` | Number or String | Yes | Chain ID (e.g., 1 for Ethereum, 11155111 for Sepolia). |
-| `chain_name` | String | Yes | Human-readable chain name. |
-| `rpc_url` | String (URL) | Yes | JSON-RPC endpoint to connect to the chain. |
-| `max_gas_price` | String or Number (wei) | Optional | Maximum gas price allowed for relaying (in wei). If exceeded, relayer rejects transaction. |
-| `fee_receiver_address` | String (0x-prefixed address) | Optional | Chain-specific fee receiver. Overrides `defaults.fee_receiver_address` if set. |
-| `signer_private_key` | String (0x-prefixed private key) | Optional | Chain-specific signer. Overrides `defaults.signer_private_key` if set. |
-| `entrypoint_address` | String (0x-prefixed address) | Optional | Chain-specific entrypoint. Overrides `defaults.entrypoint_address` if set. |
-| `native_currency` | Object | Optional | Info about the chain's native currency (ETH, MATIC, etc). |
-| `supported_assets` | Array of Objects | Optional | List of ERC-20 or native assets supported for withdrawals on this chain. |
+| Field                  | Type                             | Required | Description                                                                                                 |
+| :--------------------- | :------------------------------- | :------- | :---------------------------------------------------------------------------------------------------------- |
+| `chain_id`             | Number or String                 | Yes      | Chain ID (e.g., 1 for Ethereum, 11155111 for Sepolia).                                                      |
+| `chain_name`           | String                           | Yes      | Human-readable chain name.                                                                                  |
+| RPC URL                | Environment variable             | Yes      | Set `CHAIN_<CHAIN_ID>_RPC_URL` (for example, `CHAIN_11155111_RPC_URL`). JSON `rpc_url` fields are rejected. |
+| `max_gas_price`        | String or Number (wei)           | Optional | Maximum gas price allowed for relaying (in wei). If exceeded, relayer rejects transaction.                  |
+| `fee_receiver_address` | String (0x-prefixed address)     | Optional | Chain-specific fee receiver. Overrides `defaults.fee_receiver_address` if set.                              |
+| `signer_private_key`   | String (0x-prefixed private key) | Optional | Chain-specific signer. Overrides `defaults.signer_private_key` if set.                                      |
+| `entrypoint_address`   | String (0x-prefixed address)     | Optional | Chain-specific entrypoint. Overrides `defaults.entrypoint_address` if set.                                  |
+| `native_currency`      | Object                           | Optional | Info about the chain's native currency (ETH, MATIC, etc).                                                   |
+| `supported_assets`     | Array of Objects                 | Optional | List of ERC-20 or native assets supported for withdrawals on this chain.                                    |
 
 ---
 
 ### `chains[].native_currency` Object
 
-| Field | Type | Required | Description |
-|:------|:-----|:---------|:------------|
-| `name` | String | No (default: `"Ether"`) | Full name of the native currency. |
-| `symbol` | String | No (default: `"ETH"`) | Ticker symbol for the native currency. |
-| `decimals` | Number | No (default: `18`) | Number of decimals used by the native currency. |
+| Field      | Type   | Required                | Description                                     |
+| :--------- | :----- | :---------------------- | :---------------------------------------------- |
+| `name`     | String | No (default: `"Ether"`) | Full name of the native currency.               |
+| `symbol`   | String | No (default: `"ETH"`)   | Ticker symbol for the native currency.          |
+| `decimals` | Number | No (default: `18`)      | Number of decimals used by the native currency. |
 
 ---
 
@@ -142,12 +142,12 @@ Each entry represents a supported chain configuration.
 
 Each entry represents a supported ERC-20 token (or native token).
 
-| Field | Type | Required | Description |
-|:------|:-----|:---------|:------------|
-| `asset_address` | String (0x-prefixed address) | Yes | Token contract address. Use `0xEeeee...` for native assets. |
-| `asset_name` | String | Yes | Human-readable name of the token. |
-| `fee_bps` | String or Number | Yes | Fee in basis points (1/100th of a percent). 100 = 1%. |
-| `min_withdraw_amount` | String or Number | Yes | Minimum withdrawal amount allowed for this asset (in base units, not decimals). |
+| Field                 | Type                         | Required | Description                                                                     |
+| :-------------------- | :--------------------------- | :------- | :------------------------------------------------------------------------------ |
+| `asset_address`       | String (0x-prefixed address) | Yes      | Token contract address. Use `0xEeeee...` for native assets.                     |
+| `asset_name`          | String                       | Yes      | Human-readable name of the token.                                               |
+| `fee_bps`             | String or Number             | Yes      | Fee in basis points (1/100th of a percent). 100 = 1%.                           |
+| `min_withdraw_amount` | String or Number             | Yes      | Minimum withdrawal amount allowed for this asset (in base units, not decimals). |
 
 ---
 
@@ -179,6 +179,7 @@ Each entry represents a supported ERC-20 token (or native token).
 - **supported_assets**: Supported ERC-20 or native assets with:
   - **fee_bps**: Relayer profit margin (in basis points).
   - **min_withdraw_amount**: Minimum withdrawal size allowed.
+
 ---
 
 # API Endpoints
@@ -273,10 +274,10 @@ Returns configuration for a given chain and asset.
 
 ### Query Parameters
 
-| Parameter      | Required | Description                  |
-| -------------- | -------- | ---------------------------- |
-| `chainId`      | Yes      | Chain ID as number           |
-| `assetAddress` | Yes      | Asset address (0x hex format)    |
+| Parameter      | Required | Description                   |
+| -------------- | -------- | ----------------------------- |
+| `chainId`      | Yes      | Chain ID as number            |
+| `assetAddress` | Yes      | Asset address (0x hex format) |
 
 ### Response
 
@@ -295,16 +296,16 @@ Returns configuration for a given chain and asset.
 
 # Available Scripts
 
-| Script           | Description                                               |
-| ---------------- | --------------------------------------------------------- |
-| `build`          | Compile code with tsc                                     |
-| `start`          | Run the compiled server                                   |
-| `build:start`    | Compile and run in one command                            |
-| `start:ts`       | Run using ts-node (dev mode)                              |
-| `check-types`    | Type-check the codebase                                   |
-| `lint` / `lint:fix` | Check or fix ESLint violations                        |
-| `format` / `format:fix` | Check or fix Prettier formatting                  |
-| `test` / `test:cov` | Run tests or generate coverage                         |
-| `docker:build` / `docker:run` | Build or run the relayer using Docker      |
+| Script                        | Description                           |
+| ----------------------------- | ------------------------------------- |
+| `build`                       | Compile code with tsc                 |
+| `start`                       | Run the compiled server               |
+| `build:start`                 | Compile and run in one command        |
+| `start:ts`                    | Run using ts-node (dev mode)          |
+| `check-types`                 | Type-check the codebase               |
+| `lint` / `lint:fix`           | Check or fix ESLint violations        |
+| `format` / `format:fix`       | Check or fix Prettier formatting      |
+| `test` / `test:cov`           | Run tests or generate coverage        |
+| `docker:build` / `docker:run` | Build or run the relayer using Docker |
 
 ---

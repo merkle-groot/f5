@@ -16,8 +16,8 @@ https://defi.sucks/
 
 */
 
-import {ReentrancyGuard} from '@oz/utils/ReentrancyGuard.sol';
 import {IERC20, SafeERC20} from '@oz/token/ERC20/utils/SafeERC20.sol';
+import {ReentrancyGuard} from '@oz/utils/ReentrancyGuard.sol';
 
 import {PoseidonT4} from 'poseidon/PoseidonT4.sol';
 
@@ -25,11 +25,11 @@ import {Constants} from './lib/Constants.sol';
 import {ProofLib} from './lib/ProofLib.sol';
 
 import {IEntrypoint} from 'interfaces/IEntrypoint.sol';
-import {IPrivacyPool} from 'interfaces/IPrivacyPool.sol';
-import {IL1CrossDomainMessenger, IL1StandardBridge} from 'interfaces/external/IOptimismAdapter.sol';
-import {IInbox, IL1GatewayRouter} from 'interfaces/external/IArbitrumBridge.sol';
-import {IStarkgateBridge, IStarkgateEthBridge, IStarknetMessaging} from 'interfaces/external/IStarknetBridge.sol';
 import {IL2Pool} from 'interfaces/IL2Pool.sol';
+import {IPrivacyPool} from 'interfaces/IPrivacyPool.sol';
+import {IInbox, IL1GatewayRouter} from 'interfaces/external/IArbitrumBridge.sol';
+import {IL1CrossDomainMessenger, IL1StandardBridge} from 'interfaces/external/IOptimismAdapter.sol';
+import {IStarkgateBridge, IStarkgateEthBridge} from 'interfaces/external/IStarknetBridge.sol';
 
 import {State} from './State.sol';
 
@@ -47,6 +47,9 @@ contract PrivacyPool is State, ReentrancyGuard, IPrivacyPool {
   using SafeERC20 for IERC20;
   using ProofLib for ProofLib.WithdrawProof;
   using ProofLib for ProofLib.RagequitProof;
+
+  /// @notice L1 token identifier used by StarkGate's upgraded legacy ETH bridge.
+  address internal constant STARKGATE_ETH = address(0x455448);
 
   /// @notice Whether this pool holds the native asset
   bool public immutable IS_NATIVE;
@@ -244,8 +247,8 @@ contract PrivacyPool is State, ReentrancyGuard, IPrivacyPool {
   /**
    * @notice Bridge withdrawn value to the destination L2 pool and carry the note message
    * @dev Reads canonical bridge configuration from the Registry and dispatches on the bridge family.
-   *      The token op and the note message arrive in separate transactions with no ordering
-   *      guarantee (except native Arbitrum, which delivers both in a single retryable ticket).
+   *      OP-Stack and ERC20 Arbitrum use separate asynchronous deliveries. Native Arbitrum uses one
+   *      retryable, and Starknet uses one atomic StarkGate token+callback delivery.
    * @param _chainId The destination chain id
    * @param _value The amount to bridge
    * @param _commitment The L2 destination-note commitment hash (C_dest)
@@ -270,22 +273,22 @@ contract PrivacyPool is State, ReentrancyGuard, IPrivacyPool {
    *         bridge. The note message executes from L1-derived gas, so no ETH fee is prepaid.
    */
   function _bridgeOpStack(IEntrypoint.BridgeConfig memory _config, uint256 _value, uint256 _commitment) internal {
-    // Carry the note into the destination pool. Encoded as a real ABI call (4-byte selector +
-    // args) so the L2 messenger dispatches it directly to the destination pool's `deposit`.
-    bytes memory _message = abi.encodeWithSelector(IL2Pool.deposit.selector, _value, _commitment);
-    IL1CrossDomainMessenger(_config.l1Messenger).sendMessage(_config.l2Pool, _message, uint32(_config.messageGasLimit));
-
-    // Move the tokens through the canonical bridge
+    // Initiate backing first. The two L2 operations remain asynchronous, but this ordering gives
+    // the canonical token bridge the earliest possible inclusion and avoids deliberately putting
+    // an unbacked commitment in flight first.
     if (IS_NATIVE) {
       IL1StandardBridge(_config.l1TokenBridge).bridgeETHTo{value: _value}(
         _config.l2Pool, uint32(_config.tokenGasLimit), bytes('')
       );
     } else {
       IERC20(ASSET).forceApprove(_config.l1TokenBridge, _value);
-      IL1StandardBridge(_config.l1TokenBridge).bridgeERC20To(
-        ASSET, _config.l2Token, _config.l2Pool, _value, uint32(_config.tokenGasLimit), bytes('')
-      );
+      IL1StandardBridge(_config.l1TokenBridge)
+        .bridgeERC20To(ASSET, _config.l2Token, _config.l2Pool, _value, uint32(_config.tokenGasLimit), bytes(''));
     }
+
+    // Send the commitment only after the backing bridge call has succeeded.
+    bytes memory _message = abi.encodeWithSelector(IL2Pool.deposit.selector, _value, _commitment);
+    IL1CrossDomainMessenger(_config.l1Messenger).sendMessage(_config.l2Pool, _message, uint32(_config.messageGasLimit));
   }
 
   /**
@@ -320,7 +323,9 @@ contract PrivacyPool is State, ReentrancyGuard, IPrivacyPool {
       uint256 _tokenFee = _config.tokenFee + _config.tokenGasLimit * _config.tokenMaxFeePerGas;
       if (msg.value < _msgFee + _tokenFee) revert InsufficientBridgeFee();
 
-      // Note message (no callvalue)
+      // Initiate the token retryable first, then the commitment retryable.
+      _bridgeArbitrumToken(_config, _value, _tokenFee);
+
       IInbox(_config.l1Messenger).createRetryableTicket{value: _msgFee}(
         _config.l2Pool,
         0,
@@ -331,9 +336,6 @@ contract PrivacyPool is State, ReentrancyGuard, IPrivacyPool {
         _config.messageMaxFeePerGas,
         _message
       );
-
-      // Token bridge through the token's canonical gateway (allowance targets the gateway)
-      _bridgeArbitrumToken(_config, _value, _tokenFee);
       _feeSpent = _msgFee + _tokenFee;
     }
   }
@@ -358,43 +360,35 @@ contract PrivacyPool is State, ReentrancyGuard, IPrivacyPool {
   }
 
   /**
-   * @notice Bridge to Starknet via the Starknet Core messenger + StarkGate token bridge.
-   * @dev Each L1->L2 op prepays a flat ETH message fee from `msg.value`. The note is serialized as a
-   *      felt array; `_commitment` (a Poseidon-BN254 output that can exceed the Stark prime) is split
-   *      into low/high 128-bit felts. The destination `l1_handler` must decode `[value, lo, hi]`.
+   * @notice Bridge to Starknet with StarkGate `depositWithMessage`.
+   * @dev StarkGate credits the L2 token balance before invoking the destination pool's `on_receive`,
+   *      making token-before-commitment ordering atomic. The commitment is split into low/high
+   *      128-bit felts because a BN254 field element can exceed Starknet's felt252 range.
    */
   function _bridgeStarknet(
     IEntrypoint.BridgeConfig memory _config,
     uint256 _value,
     uint256 _commitment
   ) internal returns (uint256 _feeSpent) {
-    if (msg.value < _config.messageFee + _config.tokenFee) revert InsufficientBridgeFee();
+    if (msg.value < _config.tokenFee) revert InsufficientBridgeFee();
 
-    // Serialize the note as felts: value fits within a felt; the commitment is split low/high 128
-    uint256[] memory _payload = new uint256[](3);
-    _payload[0] = _value;
-    _payload[1] = _commitment & type(uint128).max;
-    _payload[2] = _commitment >> 128;
+    uint256[] memory _message = new uint256[](2);
+    _message[0] = _commitment & type(uint128).max;
+    _message[1] = _commitment >> 128;
 
-    // Carry the note into the destination pool's l1_handler
-    IStarknetMessaging(_config.l1Messenger).sendMessageToL2{value: _config.messageFee}(
-      _config.l2PoolFelt, _config.l2Handler, _payload
-    );
-
-    // Move the tokens through StarkGate. For native, the bridged ETH rides in `msg.value`.
-    // NOTE: the native path MUST use the ETH bridge's token-less `deposit` overload. StarkGate
-    // identifies ETH with its own sentinel (`0x...455448`), not `Constants.NATIVE_ASSET`
-    // (`0xEeee...EEeE`), so passing `ASSET` to the 3-arg form reverts with `TOKEN_NOT_SERVICED`.
+    // `depositWithMessage` mints/transfers backing first and then calls `on_receive` on the pool.
     if (IS_NATIVE) {
-      IStarkgateEthBridge(_config.l1TokenBridge).deposit{value: _value + _config.tokenFee}(
-        _value, _config.l2PoolFelt
+      IStarkgateEthBridge(_config.l1TokenBridge).depositWithMessage{value: _value + _config.tokenFee}(
+        STARKGATE_ETH, _value, _config.l2PoolFelt, _message
       );
     } else {
       IERC20(ASSET).forceApprove(_config.l1TokenBridge, _value);
-      IStarkgateBridge(_config.l1TokenBridge).deposit{value: _config.tokenFee}(ASSET, _value, _config.l2PoolFelt);
+      IStarkgateBridge(_config.l1TokenBridge).depositWithMessage{value: _config.tokenFee}(
+        ASSET, _value, _config.l2PoolFelt, _message
+      );
     }
 
-    _feeSpent = _config.messageFee + _config.tokenFee;
+    _feeSpent = _config.tokenFee;
   }
 
   /**

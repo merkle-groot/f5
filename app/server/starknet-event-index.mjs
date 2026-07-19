@@ -38,8 +38,9 @@ export class StarknetEventIndex {
     return state.inFlight;
   }
 
-  streamId({ rpcUrl, address, eventName }) {
-    return `${rpcUrl}\u0000${address.toLowerCase()}:${eventName}`;
+  streamId({ rpcUrl, address, eventName, eventNames }) {
+    const key = eventNames?.join("|") ?? eventName;
+    return `${rpcUrl}\u0000${address.toLowerCase()}:${key}`;
   }
 
   async read(params) {
@@ -54,7 +55,7 @@ export class StarknetEventIndex {
     return state.inFlight;
   }
 
-  async refresh(state, { rpcUrl, provider, address, eventName, selector, fromBlock }) {
+  async refresh(state, { rpcUrl, provider, address, eventName, eventNames, selector, selectors, fromBlock }) {
     const head = await this.head(rpcUrl, provider);
     if (state.lastHead === head) return state.events;
 
@@ -67,14 +68,15 @@ export class StarknetEventIndex {
       do {
         const page = await this.retry(() => provider.getEvents({
           address,
-          keys: [[selector]],
+          keys: [selectors ?? [selector]],
           from_block: { block_number: start },
           to_block: { block_number: head },
           chunk_size: this.chunkSize,
           ...(token ? { continuation_token: token } : {}),
         }));
         if (!page) {
-          throw new Error(`Starknet RPC returned no result for ${eventName} on ${address}`);
+          const label = eventNames?.join("/") ?? eventName;
+          throw new Error(`Starknet RPC returned no result for ${label} on ${address}`);
         }
         fresh.push(...(page.events ?? []));
         token = page.continuation_token;

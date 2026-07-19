@@ -177,14 +177,14 @@ contract Entrypoint is AccessControlUpgradeable, UUPSUpgradeable, ReentrancyGuar
     BridgeConfig calldata _config
   ) external onlyRole(_OWNER_ROLE) {
     if (_config.isSupported) {
-      // The L1 messaging and token-bridge endpoints are required for every family
-      if (_config.l1Messenger == address(0) || _config.l1TokenBridge == address(0)) revert ZeroAddress();
-
-      // The destination pool identifier lives in a different field for Starknet (felt) vs EVM chains
+      // Starknet carries the note inside StarkGate `depositWithMessage`; EVM families retain
+      // separate messaging and token-bridge endpoints.
       if (_config.kind == BridgeKind.Starknet) {
-        if (_config.l2PoolFelt == 0 || _config.l2Handler == 0) revert ZeroAddress();
+        if (_config.l1TokenBridge == address(0) || _config.l2PoolFelt == 0) revert ZeroAddress();
       } else {
-        if (_config.l2Pool == address(0)) revert ZeroAddress();
+        if (_config.l1Messenger == address(0) || _config.l1TokenBridge == address(0) || _config.l2Pool == address(0)) {
+          revert ZeroAddress();
+        }
       }
     }
 
