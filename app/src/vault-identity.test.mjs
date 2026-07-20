@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { renderVaultIdentityControls } from "./vault-identity.js";
 
@@ -35,4 +36,14 @@ test("renders publish action only for keys known to be unpublished", () => {
 test("disables an unpublished address action while another operation is busy", () => {
   const html = renderVaultIdentityControls({ shielded, account: "0x1234", registered: false, busy: true });
   assert.match(html, /id="register-keys"[^>]*disabled/);
+});
+
+test("integrates identity controls through homeView rather than the shared app shell", async () => {
+  const source = await readFile(new URL("./main.js", import.meta.url), "utf8");
+  const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end));
+  const appShellSource = section("function appShell()", "function bind()");
+  const homeViewSource = section("function homeView()", "function noteMapDestination(");
+
+  assert.doesNotMatch(appShellSource, /renderVaultIdentityControls|vaultAddressTile/);
+  assert.match(homeViewSource, /renderVaultIdentityControls/);
 });

@@ -325,20 +325,19 @@
 .vault-notes-tile .group-heading{border-bottom-width:2px}
 .vault-notes-tile .vnote{border-width:2px}
 
-/* Public identity is the final full-width tile. */
-.vault-address-tile{padding:24px 22px 22px;background:var(--paper)}
-.vault-address-tile .identity-strip .card-heading h2{font-size:20px}
-.vault-address-tile .identity-copy{max-width:720px;margin:8px 0 18px}
-.vault-address-tile .online{border-width:2px;padding:8px 11px;font-size:9px}
+.transit-identity{margin-top:22px;padding-top:22px;border-top:2px solid var(--ink)}
+.transit-identity .card-heading h2{font-size:20px}
+.transit-identity .identity-copy{max-width:760px;margin:8px 0 18px;color:#555;line-height:1.5}
+.transit-identity .online{border-width:2px;padding:8px 11px;font-size:9px}
 .shielded-key-list{display:flex;flex-direction:column;gap:10px}
 .shielded-key-row{display:grid;grid-template-columns:112px minmax(0,1fr) 58px;gap:12px;align-items:center;min-height:48px;border:2px solid var(--ink);padding:8px 10px;background:#fbf7ed}
 .shielded-key-row>span{color:#666;font:500 9px 'DM Mono';letter-spacing:1.5px}
 .shielded-key-row code{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:500 11px 'DM Mono'}
 .shielded-key-row button{border:1px solid var(--ink);background:var(--paper);padding:6px 8px;font:700 8px 'DM Mono';letter-spacing:1px}
 .shielded-key-row button:hover{background:var(--yellow)}
-.vault-address-actions{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px;padding-top:18px;border-top:2px solid var(--ink)}
-.vault-address-actions .secondary-btn{border-width:2px;box-shadow:4px 4px 0 var(--ink);padding:13px}
-.vault-address-actions .secondary-btn:disabled{box-shadow:none;border-style:dashed;background:transparent;color:#888;cursor:not-allowed}
+.transit-identity-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:18px;padding-top:18px;border-top:2px solid var(--ink)}
+.transit-identity-actions .secondary-btn{border-width:2px;box-shadow:4px 4px 0 var(--ink);padding:13px}
+.transit-identity-actions .secondary-btn:disabled{box-shadow:none;border-style:dashed;background:transparent;color:#888;cursor:not-allowed}
 
 /* Ragequit is intentionally visually separate from ordinary private flows. */
 .ragequit-panel{border-color:#8f2017;background:#fff8f0}
@@ -377,7 +376,7 @@
   .vault-frame .brand{font-size:22px}
   .vault-frame .app-shell{gap:16px;padding:14px}
   .vault-primary-grid{gap:16px}
-  .vault-summary,.vault-notes-tile,.vault-address-tile,.vault-frame .home-panel{padding:18px}
+  .vault-summary,.vault-notes-tile,.vault-frame .home-panel{padding:18px}
   .vault-summary .vault-actions{grid-template-columns:1fr}
   .vault-summary .vault-actions .primary{grid-column:auto}
   .route-summary-grid,.vault-notes-tile .route-scan-list{grid-template-columns:1fr}
@@ -386,7 +385,7 @@
   .vault-frame .note-map svg{width:680px;min-width:680px}
   .shielded-key-row{grid-template-columns:1fr 54px;gap:7px}
   .shielded-key-row>span{grid-column:1/-1}
-  .vault-address-actions{grid-template-columns:1fr}
+  .transit-identity-actions{grid-template-columns:1fr}
   .ragequit-account{grid-template-columns:1fr}
   .vault-frame+footer{width:calc(100% - 24px);margin-top:-22px}
 }

@@ -1,4 +1,5 @@
 import "./style.css";
+import { renderVaultIdentityControls } from "./vault-identity.js";
 import { createPublicClient, createWalletClient, custom, decodeAbiParameters, formatEther, http, isAddress, parseEther, parseEventLogs } from "viem";
 import {
   IDENTITY_UNWRAP_MESSAGE,
@@ -211,7 +212,7 @@ function onboardingShell() {
     ${footer()}`;
 }
 
-/** Unlocked: workspace + compact rail, followed by the full-width identity tile. */
+/** Unlocked: workspace + compact rail. */
 function appShell() {
   const workspace = state.view === "deposit" ? depositView()
     : state.view === "send" ? sendView()
@@ -230,7 +231,6 @@ function appShell() {
           ${vaultBalanceBar()}
           <section class="panel vault-notes-tile">${notesSection()}</section>
         </div>
-        ${vaultAddressTile()}
       </main>
     </div>
     ${footer()}`;
@@ -521,51 +521,6 @@ function vaultBalanceBar() {
     </section>`;
 }
 
-/** The final tile keeps publish and recovery controls together, away from daily actions. */
-function vaultAddressTile() {
-  return `
-    <section class="panel vault-address-tile">
-      ${identityStrip()}
-      <div class="vault-address-actions">
-        <button id="register-keys" class="secondary-btn" ${state.registered === false && !state.busy ? "" : "disabled"}>${publishButtonLabel()}</button>
-        <button id="reveal-mnemonic" class="secondary-btn">SHOW RECOVERY PHRASE</button>
-      </div>
-    </section>`;
-}
-
-function publishButtonLabel() {
-  return state.registered === true
-    ? "ADDRESS PUBLISHED"
-    : state.registered === false
-      ? "PUBLISH SHIELDED ADDRESS"
-      : !state.account
-        ? "CONNECT WALLET TO PUBLISH"
-        : "CHECKING REGISTRY";
-}
-
-/** The published half of the identity, plus its ERC-6538 registration state. */
-function identityStrip() {
-  const { B, V } = state.identity.shielded;
-  const status = !state.account
-    ? "CONNECT WALLET"
-    : state.registered === true
-      ? "PUBLISHED"
-      : state.registered === false
-        ? "NOT PUBLISHED"
-        : "CHECKING";
-  const spendingKey = `${B[0].toString()}, ${B[1].toString()}`;
-  const viewingKey = `${V[0].toString()}, ${V[1].toString()}`;
-  return `
-    <section class="identity-strip">
-      <div class="card-heading"><h2>SHIELDED ADDRESS</h2><span class="online"><i class="dot teal-dot"></i> ${status}</span></div>
-      <p class="identity-copy">Publish this address to let other users send shielded notes directly to your vault.</p>
-      <div class="shielded-key-list">
-        <div class="shielded-key-row"><span>SPENDING KEY</span><code>${short(B[0].toString())} · ${short(B[1].toString())}</code><button type="button" data-copy-shielded="${escapeHtml(spendingKey)}" data-copy-label="Spending key">COPY</button></div>
-        <div class="shielded-key-row"><span>VIEWING KEY</span><code>${short(V[0].toString())} · ${short(V[1].toString())}</code><button type="button" data-copy-shielded="${escapeHtml(viewingKey)}" data-copy-label="Viewing key">COPY</button></div>
-      </div>
-    </section>`;
-}
-
 /** One number: spendable now, with pending + withdrawn as context. */
 function balanceCard() {
   const b = balances();
@@ -850,6 +805,12 @@ function homeView() {
         <span><i class="legend-dot empty"></i> NO NOTES</span>
       </div>
       <p class="micro">current shielded notes only ★ spent and withdrawn history is not counted</p>
+      ${renderVaultIdentityControls({
+        shielded: state.identity.shielded,
+        account: state.account,
+        registered: state.registered,
+        busy: state.busy,
+      })}
     </section>`;
 }
 
