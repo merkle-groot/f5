@@ -35,7 +35,21 @@ export function getL1() {
     symbol: process.env.ASSET_SYMBOL ?? "ETH",
     decimals: Number(process.env.ASSET_DECIMALS ?? 18),
     scope: process.env.POOL_SCOPE ?? "",
+    explorerUrl: explorerUrl(process.env.EXPLORER_URL),
   };
+}
+
+/**
+ * Normalise a block-explorer origin, or "" when none is set.
+ *
+ * Explorer links are additive: the client renders one only when this is non-empty,
+ * so an unconfigured deployment shows plain text rather than a dead link. The
+ * trailing slash is stripped here so callers can join with a literal `/tx/...` —
+ * both EVM explorers and the Starknet ones (Voyager, Starkscan) use that path.
+ */
+function explorerUrl(value) {
+  const trimmed = String(value ?? "").trim().replace(/\/+$/, "");
+  return /^https?:\/\//i.test(trimmed) ? trimmed : "";
 }
 
 /** True when we know enough to index the L1 pool at all. */
@@ -69,6 +83,7 @@ export function getEvmL2s() {
         poolAddress: process.env[`${P}_POOL_ADDRESS`] ?? "",
         deploymentBlock: process.env[`${P}_DEPLOYMENT_BLOCK`] ?? "0",
         blockTimeMs: Number(process.env[`${P}_BLOCK_TIME_MS`] ?? 2_000),
+        explorerUrl: explorerUrl(process.env[`${P}_EXPLORER_URL`]),
         // No signing key. Whether a destination can be signed for is reported by the
         // relayer via `/relayer/destinations/:key`, never inferred from local state.
       };
@@ -100,6 +115,7 @@ export function getStarknetConfig() {
     assetAddress: process.env.STARKNET_ASSET_ADDRESS ?? "",
     deploymentBlock: Number(process.env.STARKNET_DEPLOYMENT_BLOCK ?? 0),
     blockTimeMs: Number(process.env.STARKNET_BLOCK_TIME_MS ?? 30_000),
+    explorerUrl: explorerUrl(process.env.STARKNET_EXPLORER_URL),
   };
 }
 

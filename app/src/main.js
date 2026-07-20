@@ -1,5 +1,5 @@
 import "./style.css";
-import { renderVaultIdentityControls } from "./vault-identity.js";
+import { cachedPublicationStatus, renderVaultIdentityControls, storePublicationStatus } from "./vault-identity.js";
 import { createPublicClient, createWalletClient, custom, decodeAbiParameters, formatEther, http, isAddress, parseEther, parseEventLogs } from "viem";
 import {
   IDENTITY_UNWRAP_MESSAGE,
@@ -19,7 +19,10 @@ import {
   saveNotes,
   validateRecoveryPhrase,
 } from "./vault.js";
-import { runSequentialScan } from "./scan-flow.js";
+import { preservedNotes, runSequentialScan } from "./scan-flow.js";
+import { txLinkHtml } from "./explorer.js";
+import { evmAddressProblem, recipientProblem } from "./recipient.js";
+import { buildActivity, relativeTime } from "./activity.js";
 import {
   RAGEQUIT_PATH,
   formatRagequitProof,
@@ -59,6 +62,7 @@ const VAULT_PATHS = {
   deposit: "/vault/deposit",
   send: "/vault/bridge",
   receive: "/vault/withdraw",
+  activity: "/vault/activity",
   ragequit: RAGEQUIT_PATH,
 };
 
@@ -102,10 +106,14 @@ const state = {
   config: null,
   error: null,
   notice: null,
+  /** Explorer anchor rendered under the current notice; cleared with it. */
+  noticeTx: null,
   busy: false,
+  /** Connected wallet's L1 balance in wei, as a string. Null until read. */
+  walletBalance: null,
   noteProgress: null,
   scanProgress: { active: false, steps: [] },
-  notesUi: { showSpent: false, expanded: {} },
+  notesUi: { showSpent: false, expanded: {}, route: null },
 
   /** { mnemonic, master, shielded, vaultKey } — derived, never persisted raw. */
   identity: null,
@@ -150,6 +158,21 @@ function destinationKey(chainId) {
   return evmChains().find((chain) => String(chain.chainId) === id)?.key ?? id;
 }
 
+/**
+ * Block-explorer origin for a route key ("l1", an EVM chain key, or "starknet"),
+ * or "" when this deployment configured none.
+ */
+function explorerBase(chain) {
+  if (!chain || chain === "l1") return state.config?.explorerUrl ?? "";
+  if (chain === "starknet") return state.starknet?.explorerUrl ?? "";
+  return evmChains().find((candidate) => candidate.key === chain)?.explorerUrl ?? "";
+}
+
+/** An explorer anchor for a transaction on `chain`, or "" when it cannot be linked. */
+function txLink(hash, chain = "l1", label = "VIEW ON EXPLORER") {
+  return txLinkHtml(explorerBase(chain), hash, label);
+}
+
 /*//////////////////////////////////////////////////////////////
                               RENDER
 //////////////////////////////////////////////////////////////*/
@@ -175,6 +198,7 @@ function navigateVault(view, { replace = false, capture = true, clearMessages = 
   if (clearMessages) {
     state.error = null;
     state.notice = null;
+    state.noticeTx = null;
   }
   if (location.pathname !== path) history[replace ? "replaceState" : "pushState"]({}, "", path);
   render();
@@ -187,7 +211,7 @@ function topbar() {
     <header class="topbar">
       <a class="brand" href="/vault" data-view="home"><span class="brand-mark">${icons.mark}</span><span>F5</span><span class="tag pink">VAULT</span></a>
       <div class="wallet">
-        <button class="network"><i class="dot blue"></i> ${state.config?.chainName ?? "Ethereum"}</button>
+        <button class="network"><i class="dot route-ethereum"></i> ${state.config?.chainName ?? "Ethereum"}</button>
         <button id="connect" class="account">${acct}</button>
         ${state.identity ? `<button id="lock" class="account">LOCK</button>` : ""}
       </div>
@@ -217,6 +241,7 @@ function appShell() {
   const workspace = state.view === "deposit" ? depositView()
     : state.view === "send" ? sendView()
     : state.view === "receive" ? receiveView()
+    : state.view === "activity" ? activityView()
     : state.view === "ragequit" ? ragequitView()
     : homeView();
   return `
@@ -228,8 +253,10 @@ function appShell() {
             ${errorView()}
             ${workspace}
           </section>
-          ${vaultBalanceBar()}
-          <section class="panel vault-notes-tile">${notesSection()}</section>
+          <aside class="vault-rail">
+            ${vaultBalanceBar()}
+            <section class="panel vault-notes-tile">${notesSection()}</section>
+          </aside>
         </div>
       </main>
     </div>
@@ -253,10 +280,13 @@ function bind() {
     }
   }));
   on("#connect", "click", () => guard(connectWallet));
+  on("[data-connect-wallet]", "click", () => guard(connectWallet));
   on("#lock", "click", lockVault);
   on("#action", "click", submitFlow);
   on("#dismiss-error", "click", () => { state.error = null; render(); });
+  on("[data-dismiss-notice]", "click", () => { state.notice = null; state.noticeTx = null; render(); });
   on("#amount", "input", (e) => { e.target.value = sanitizeAmount(e.target.value); state.amount = e.target.value; });
+  on("#max-amount", "click", () => guard(async () => { state.amount = await maxDepositAmount(); }));
   app.querySelectorAll('input[name="send-chain"]').forEach((input) => input.addEventListener("change", (event) => {
     captureForm();
     state.send.destinationChainId = event.target.value;
@@ -280,6 +310,11 @@ function bind() {
     state.send.recipientKey = event.target.value;
     state.send.resolved = null;
     state.send.draft = null;
+    showFieldProblem("send-recipient-problem", evmAddressProblem(event.target.value));
+  });
+  on("#recv-recipient", "input", (event) => {
+    state.receive.recipient = event.target.value;
+    showFieldProblem("recv-recipient-problem", recipientProblem(event.target.value, selectedNote()?.chain));
   });
 
   on("#create-identity", "click", startIdentitySetup);
@@ -296,15 +331,38 @@ function bind() {
   }));
   on("#unlock-wallet", "click", () => guard(() => unlockIdentity("wallet")));
   on("#unlock-password", "click", () => guard(() => unlockIdentity("password")));
-  on("#reveal-mnemonic", "click", () => { state.notice = `Recovery phrase. Write it down:\n\n${state.identity.mnemonic}`; render(); });
+  on("#reveal-mnemonic", "click", () => { state.notice = `Recovery phrase. Write it down:\n\n${state.identity.mnemonic}`; state.noticeTx = null; render(); });
   on("#register-keys", "click", () => guard(registerShieldedAddress));
   app.querySelectorAll("[data-copy-shielded]").forEach((button) => button.addEventListener("click", () => {
-    void guard(() => copyShieldedKey(button.dataset.copyLabel, button.dataset.copyShielded));
+    void guard(() => copyValue(button.dataset.copyLabel, button.dataset.copyShielded));
+  }));
+  // Generic copy. Note rows nest this inside a clickable row, so the click must not
+  // also fire the row's "open this note" navigation.
+  app.querySelectorAll("[data-copy]").forEach((button) => button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    event.preventDefault();
+    void guard(() => copyValue(button.dataset.copyLabel, button.dataset.copy));
   }));
   app.querySelectorAll("[data-scan]").forEach((b) => b.addEventListener("click", () => guard(scanForNotes, "scan")));
+  // Refresh one route without paying for every other destination's index fetch.
+  // L1 recovery always rides along: it is what reconciles the spent set, and a
+  // route read against a stale spent set offers notes the pool would reject.
+  app.querySelectorAll("[data-rescan-route]").forEach((b) => b.addEventListener("click", () => {
+    const route = b.dataset.rescanRoute;
+    const only = route === "l1" ? ["l1"] : ["l1", route];
+    void guard(() => scanForNotes({ only }), "scan");
+  }));
   on("#toggle-spent-notes", "change", (event) => {
     captureForm();
     state.notesUi.showSpent = event.target.checked;
+    render();
+  });
+  app.querySelectorAll("[data-notes-route]").forEach((button) => button.addEventListener("click", () => {
+    state.notesUi.route = button.dataset.notesRoute;
+    render();
+  }));
+  on("[data-notes-back]", "click", () => {
+    state.notesUi.route = null;
     render();
   });
   app.querySelectorAll("[data-expand-notes]").forEach((button) => button.addEventListener("click", () => {
@@ -358,7 +416,7 @@ function bind() {
   });
 
   // Pick a READY L1 note → open SEND pre-loaded with it.
-  app.querySelectorAll("[data-send-note]").forEach((el) => el.addEventListener("click", () => {
+  app.querySelectorAll("[data-send-note]").forEach((el) => activate(el, () => {
     captureForm();
     state.send.noteCommitment = el.dataset.sendNote;
     state.send.draft = null;
@@ -366,14 +424,43 @@ function bind() {
   }));
 
   // Pick a spendable L2 note from the Withdraw workspace and refresh its status.
-  app.querySelectorAll("[data-pick-l2]").forEach((el) => el.addEventListener("click", () => {
-    captureForm();
-    const r = state.receive;
-    r.selected = el.dataset.pickL2;
-    r.status = null; r.proof = null; r.response = null;
-    navigateVault("receive");
-    guard(async () => { await refreshSelectedStatus(); });
-  }));
+  app.querySelectorAll("[data-pick-l2]").forEach((el) => activate(el, () => selectL2Note(el.dataset.pickL2)));
+  // The rows above are labels wrapping a radio, so arrow keys move the selection
+  // without ever producing a click. Without this, a keyboard user can check a note
+  // and watch the workspace keep the previous one.
+  app.querySelectorAll('input[name="withdraw-note"]').forEach((input) =>
+    input.addEventListener("change", (event) => selectL2Note(event.target.value)));
+}
+
+/**
+ * Clicking a row fires this, and so can the wrapped radio's `change`. That is
+ * harmless — `guard` drops the second call while the first is in flight — and it
+ * is deliberately not deduped by id, because re-picking the selected note is how
+ * the user asks for a fresh status read.
+ */
+function selectL2Note(id) {
+  captureForm();
+  const r = state.receive;
+  r.selected = id;
+  r.status = null; r.proof = null; r.response = null;
+  navigateVault("receive");
+  void guard(refreshSelectedStatus);
+}
+
+/**
+ * Bind an action to both click and Enter/Space.
+ *
+ * Rows that carry `role="button"` are announced as buttons and must answer the
+ * keyboard like one; a click-only handler makes them a dead end for anyone not
+ * using a mouse.
+ */
+function activate(el, run) {
+  el.addEventListener("click", run);
+  el.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    run();
+  });
 }
 
 /** Run an async handler with uniform busy/error handling. */
@@ -382,6 +469,8 @@ async function guard(fn, noteProgress = null) {
   state.busy = true;
   state.noteProgress = noteProgress;
   state.error = null;
+  // Any explorer link belongs to the action that just finished, never the next one.
+  state.noticeTx = null;
   captureForm();
 
   // Paint the busy state BEFORE starting the work. Without this the flag never reaches the DOM:
@@ -409,10 +498,13 @@ function lockVault() {
   // Wipe only the in-memory identity + derived caches. The encrypted vault stays
   // on disk — this is a lock, not a forget.
   clearUnlockedSession();
+  clearFormDraft();
   state.identity = null;
   state.notes = [];
   state.withdrawn = {};
   state.registered = null;
+  state.noticeTx = null;
+  state.walletBalance = null;
   state.view = "home";
   state.scanProgress = { active: false, steps: [] };
   state.receive = { scanned: [], scannedCount: 0, index: {}, selected: null, recipient: "", status: null, proof: null, withdrawal: null, response: null };
@@ -516,6 +608,7 @@ function vaultBalanceBar() {
         <button class="primary" data-view="deposit">DEPOSIT →</button>
         <button class="secondary-btn" data-view="send">BRIDGE</button>
         <button class="secondary-btn" data-view="receive">WITHDRAW</button>
+        <button class="secondary-btn" data-view="activity">ACTIVITY</button>
         <button class="secondary-btn emergency-action" data-view="ragequit">EMERGENCY EXIT</button>
       </div>
     </section>`;
@@ -535,70 +628,94 @@ function balanceCard() {
     </section>`;
 }
 
-/** All notes, grouped by where they live, with compact previews and optional history. */
+/** A fixed-size route browser. Route details scroll inside the tile. */
 function notesSection() {
   const showSpent = state.notesUi.showSpent;
-  const l1Notes = state.notes.filter((n) => showSpent || n.status !== "spent");
   const scanning = state.noteProgress === "scan";
-  const routeSummaries = [
-    routeSummary("L1", "Ethereum", state.notes.filter((note) => note.status !== "spent").length, state.notes.filter((note) => note.status === "spent").length, "READY", "SPENT"),
-    ...evmChains().map((chain) => l2RouteSummary(chain.key, chain.chainName)),
-    ...(state.starknet?.configured || l2List("starknet").length ? [l2RouteSummary("starknet", "Starknet")] : []),
-  ].join("");
+  const routes = notesRoutes();
+  const selected = routes.find((route) => route.key === state.notesUi.route);
+
+  if (selected) return notesRouteDetail(selected, showSpent);
+
   return `
-    <section class="notes-section">
+    <section class="notes-section notes-index">
       <div class="notes-heading">
-        <div><h2>NOTES</h2><p>Scan your L1 and L2 routes for notes owned by this vault.</p></div>
+        <div><h2>NOTES</h2><p>Tap a route to open the notes owned by this vault.</p></div>
         <div class="notes-heading-actions"><label class="spent-toggle"><input id="toggle-spent-notes" type="checkbox" ${showSpent ? "checked" : ""}><span>SHOW SPENT</span></label><button data-scan class="unlock" ${state.busy ? "disabled" : ""}>${progressLabel(scanning, "SCAN", "SCANNING")}</button></div>
       </div>
-      ${scanProgressView()}
-      <div class="route-summary-grid">${routeSummaries}</div>
-
-      ${l1Notes.length ? `
-        <div class="group-heading note-detail-heading"><h3>L1 · ETHEREUM NOTES</h3></div>
-        ${notePreview("l1", l1Notes, l1NoteRow, "", "")}` : ""}
-
-      ${evmChains().map((c) => l2VaultGroup(c.key, c.chainName)).join("")}
-      ${l2VaultGroup("starknet", "Starknet")}
+      <div class="route-summary-grid">${routes.map(routeSummary).join("")}</div>
     </section>`;
 }
 
-function routeSummary(layer, label, firstCount, secondCount, firstLabel, secondLabel) {
-  return `<div class="route-summary"><span><b>${escapeHtml(layer)} · ${escapeHtml(label)}</b><small>${firstCount} ${escapeHtml(firstLabel.toLowerCase())} · ${secondCount} ${escapeHtml(secondLabel.toLowerCase())}</small></span><strong>${firstCount > 0 ? firstLabel : secondCount > 0 ? secondLabel : "DONE"}</strong></div>`;
+function notesRoutes() {
+  const ready = state.notes.filter((note) => note.status !== "spent").length;
+  const spent = state.notes.filter((note) => note.status === "spent").length;
+  const routes = [{ key: "l1", layer: "L1", label: "Ethereum", icon: "≡", color: "ethereum", detail: `${ready} ready · ${spent} spent` }];
+  evmChains().forEach((chain) => routes.push(l2NotesRoute(chain.key, chain.chainName, chainBrand(chain.key, chain.chainName))));
+  if (state.starknet?.configured || l2List("starknet").length) {
+    routes.push(l2NotesRoute("starknet", "Starknet", "starknet"));
+  }
+  return routes;
 }
 
-function l2RouteSummary(chain, label) {
+function chainBrand(key, label) {
+  const route = `${key} ${label}`.toLowerCase();
+  if (route.includes("optimism") || /(^|\s)op(\s|$)/.test(route)) return "optimism";
+  if (route.includes("base")) return "base";
+  if (route.includes("arbitrum") || route.includes("arb")) return "arbitrum";
+  if (route.includes("starknet")) return "starknet";
+  return "ethereum";
+}
+
+function l2NotesRoute(chain, label, color) {
   const notes = l2List(chain);
   const spendable = notes.filter((note) => note.status === "spendable").length;
   const waiting = notes.filter((note) => note.status === "activate" || note.status === "pending").length;
-  return routeSummary("L2", label, spendable, waiting, "AVAILABLE", "PENDING");
+  return { key: chain, layer: "L2", label, icon: chain === "starknet" ? "SN" : chainInitials(label), color, detail: `${spendable} available · ${waiting} pending` };
+}
+
+function routeSummary(route) {
+  const step = state.scanProgress.active
+    ? state.scanProgress.steps.find((candidate) => candidate.key === route.key)
+    : null;
+  const scanLabels = { pending: "WAITING", scanning: "SCANNING", complete: "DONE", skipped: "SKIPPED", error: "ERROR" };
+  const scanState = step?.status ?? "";
+  const detail = step
+    ? `${scanLabels[scanState] ?? "WAITING"} · ${step.detail ?? "Waiting for the previous route"}`
+    : route.detail;
+  return `
+    <button class="route-summary ${scanState ? `is-${scanState}` : ""}" type="button" data-notes-route="${escapeHtml(route.key)}" aria-label="Open ${escapeHtml(route.label)} notes">
+      <span class="route-summary-logo route-${escapeHtml(route.color)}" aria-hidden="true">${escapeHtml(route.icon)}</span>
+      <span class="route-summary-copy"><b>${escapeHtml(route.layer)} · ${escapeHtml(route.label)}</b><small title="${escapeHtml(detail)}">${scanState === "scanning" ? '<span class="spinner" aria-hidden="true"></span>' : ""}${escapeHtml(detail)}</small></span>
+      <span class="route-summary-arrow" aria-hidden="true">›</span>
+    </button>`;
+}
+
+function notesRouteDetail(route, showSpent) {
+  const list = route.key === "l1"
+    ? state.notes.filter((note) => showSpent || note.status !== "spent")
+    : l2List(route.key).filter((note) => showSpent || note.status !== "withdrawn");
+  const rows = route.key === "l1"
+    ? list.map(l1NoteRow).join("")
+    : list.map((note) => l2NoteRow(note, route.key)).join("");
+  return `
+    <section class="notes-section notes-detail">
+      <div class="notes-detail-head">
+        <button class="notes-back" type="button" data-notes-back>‹ ALL ROUTES</button>
+        <div class="notes-detail-title">
+          <span class="eyebrow">${escapeHtml(route.layer)} · ROUTE</span>
+          <div><h2>${escapeHtml(route.label)}</h2><strong>${list.length} note${list.length === 1 ? "" : "s"}</strong></div>
+        </div>
+        <button class="unlock notes-route-rescan" type="button" data-rescan-route="${escapeHtml(route.key)}" ${state.busy ? "disabled" : ""}>${progressLabel(state.noteProgress === "scan", "RESCAN", "SCANNING")}</button>
+      </div>
+      <div class="notes-detail-list">
+        ${rows || `<div class="note-empty">No notes on this route.<br><span>Run RESCAN to refresh this route.</span></div>`}
+      </div>
+    </section>`;
 }
 
 function progressLabel(active, idleLabel, activeLabel) {
   return active ? `<span class="spinner" aria-hidden="true"></span>${activeLabel}` : idleLabel;
-}
-
-function scanProgressView() {
-  const progress = state.scanProgress;
-  if (!progress.steps.length) return "";
-  const done = progress.steps.filter((step) => ["complete", "skipped", "error"].includes(step.status)).length;
-  const labels = {
-    pending: "WAITING",
-    scanning: "SCANNING",
-    complete: "DONE",
-    skipped: "SKIPPED",
-    error: "ERROR",
-  };
-  return `
-    <div class="route-scan" role="status" aria-live="polite">
-      <div class="route-scan-head"><strong>${progress.active ? "SCANNING ROUTES" : "LAST SCAN"}</strong><span>${done}/${progress.steps.length}</span></div>
-      <ol class="route-scan-list">${progress.steps.map((step) => `
-        <li class="route-scan-step is-${step.status}">
-          <span class="route-scan-logo route-${step.color}" aria-hidden="true">${escapeHtml(step.icon)}</span>
-          <span><strong>${escapeHtml(step.label)}</strong><small>${escapeHtml(step.detail ?? "Waiting for the previous route")}</small></span>
-          <span class="route-scan-marker">${step.status === "scanning" ? '<span class="spinner" aria-hidden="true"></span>' : ""}${labels[step.status] ?? "WAITING"}</span>
-        </li>`).join("")}</ol>
-    </div>`;
 }
 
 function notePreview(group, list, renderRow, emptyTitle, emptyHint) {
@@ -615,8 +732,8 @@ function l1NoteRow(n) {
   const attr = spent ? "" : `data-send-note="${n.commitment}" role="button" tabindex="0"`;
   return `
     <div class="vnote ${spent ? "is-past" : ""}" ${attr}>
-      <span class="note-icon">${icons.eth}</span>
-      <div><strong>${formatEther(BigInt(n.value))} ETH</strong><small>${n.legacy ? "legacy" : `#${n.index}`}　·　${short(n.commitment)}</small></div>
+      <span class="note-icon route-ethereum">${icons.eth}</span>
+      <div><strong>${formatEther(BigInt(n.value))} ETH</strong><small>${n.legacy ? "legacy" : `#${n.index}`}　·　${short(n.commitment)}</small>${copyButton(n.commitment, "Commitment")}</div>
       ${pill(spent ? "spent" : "ready")}
     </div>`;
 }
@@ -628,11 +745,21 @@ function l2Group(chain) {
     const availability = availabilityEstimate(x, chain);
     return `
       <div class="vnote ${x.status === "withdrawn" ? "is-past" : ""}">
-        <span class="note-icon">${icons.eth}</span>
-        <div><strong>${formatEther(BigInt(x.value))} ETH</strong><small>${short(x.id)}</small>${availability ? `<small class="note-eta">${escapeHtml(availability)}</small>` : ""}</div>
+        <span class="note-icon route-${chainBrand(chain, chainLabel(chain))}">${icons.eth}</span>
+        <div><strong>${formatEther(BigInt(x.value))} ETH</strong><small>${short(x.id)}</small>${availability ? `<small class="note-eta">${escapeHtml(availability)}</small>` : ""}${copyButton(x.id, "Note commitment")}</div>
         ${pill(x.status)}
       </div>`;
   }, "", "");
+}
+
+function l2NoteRow(x, chain) {
+  const availability = availabilityEstimate(x, chain);
+  return `
+    <div class="vnote ${x.status === "withdrawn" ? "is-past" : ""}">
+      <span class="note-icon route-${chainBrand(chain, chainLabel(chain))}">${icons.eth}</span>
+      <div><strong>${formatEther(BigInt(x.value))} ETH</strong><small>${short(x.id)}</small>${availability ? `<small class="note-eta">${escapeHtml(availability)}</small>` : ""}${copyButton(x.id, "Note commitment")}</div>
+      ${pill(x.status)}
+    </div>`;
 }
 
 function l2VaultGroup(chain, label) {
@@ -698,7 +825,7 @@ function actionFlowNode(node, x, y, side) {
   const anchor = side === "left" ? "end" : "start";
   return `<g class="action-flow-node">
     <circle class="action-node-badge route-${node.color}" cx="${x}" cy="${y}" r="24" />
-    <text class="action-node-icon" x="${x}" y="${y + 1}">${escapeHtml(node.icon)}</text>
+    <text class="action-node-icon route-label-${node.color}" x="${x}" y="${y + 1}">${escapeHtml(node.icon)}</text>
     <text class="action-node-title" x="${textX}" y="${y - 3}" text-anchor="${anchor}">${escapeHtml(node.title)}</text>
     <text class="action-node-detail" x="${textX}" y="${y + 19}" text-anchor="${anchor}">${escapeHtml(node.detail)}</text>
   </g>`;
@@ -711,7 +838,7 @@ function actionFlowDiagram({ ariaLabel, source, targets, interchange = false, in
   const topY = count === 1 ? centerY : 72;
   const step = count === 1 ? 0 : (height - 144) / (count - 1);
   const targetLayout = targets.map((target, index) => ({ target, y: topY + index * step }));
-  const commonRoute = interchange ? actionRoute(`M 270 ${centerY} L 530 ${centerY}`, "teal") : "";
+  const commonRoute = interchange ? actionRoute(`M 270 ${centerY} L 530 ${centerY}`, source.color) : "";
   const routes = targetLayout.map(({ target, y }, index) => {
     const path = interchange
       ? `M 530 ${centerY} C 615 ${centerY}, 650 ${y}, 750 ${y}`
@@ -734,31 +861,30 @@ function depositFlowDiagram() {
   return actionFlowDiagram({
     ariaLabel: "Funds move from your wallet into the Ethereum privacy pool",
     source: { icon: "YOU", title: "YOUR WALLET", detail: "PUBLIC FUNDS", color: "pink" },
-    targets: [{ icon: "Ξ", title: "ETHEREUM POOL", detail: "SHIELDED NOTE", color: "teal" }],
+    targets: [{ icon: "Ξ", title: "ETHEREUM POOL", detail: "SHIELDED NOTE", color: "ethereum" }],
   });
 }
 
 function bridgeTargets() {
-  const targets = evmChains().map((chain) => ({ id: String(chain.chainId), label: chain.chainName }));
-  if (state.starknet?.configured) targets.push({ id: STARKNET_CHAIN_ID, label: "Starknet Sepolia" });
+  const targets = evmChains().map((chain) => ({ id: String(chain.chainId), key: chain.key, label: chain.chainName }));
+  if (state.starknet?.configured) targets.push({ id: STARKNET_CHAIN_ID, key: "starknet", label: "Starknet Sepolia" });
   return targets;
 }
 
 function bridgeFlowDiagram(send) {
-  const routeColors = ["blue", "pink", "yellow", "teal"];
-  const targets = bridgeTargets().map((target, index) => ({ ...target, color: routeColors[index % routeColors.length] }));
+  const targets = bridgeTargets().map((target) => ({ ...target, color: chainBrand(target.key, target.label) }));
   const selected = send.destinationChosen ? targets.find((target) => target.id === send.destinationChainId) : null;
   if (selected) {
     return actionFlowDiagram({
       ariaLabel: `Note bridges from Ethereum to ${selected.label}`,
-      source: { icon: "Ξ", title: "ETHEREUM POOL", detail: "L1 NOTE", color: "teal" },
+      source: { icon: "Ξ", title: "ETHEREUM POOL", detail: "L1 NOTE", color: "ethereum" },
       targets: [{ icon: chainInitials(selected.label), title: selected.label, detail: "SHIELDED NOTE", color: selected.color }],
       interchange: true,
     });
   }
   return actionFlowDiagram({
     ariaLabel: "Ethereum note can bridge to any configured destination",
-    source: { icon: "Ξ", title: "ETHEREUM POOL", detail: "CHOOSE A BRIDGE", color: "teal" },
+    source: { icon: "Ξ", title: "ETHEREUM POOL", detail: "CHOOSE A BRIDGE", color: "ethereum" },
     targets: targets.length
       ? targets.map((target) => ({ icon: chainInitials(target.label), title: target.label, detail: "DESTINATION", color: target.color }))
       : [{ icon: "?", title: "NO BRIDGES", detail: "NOT CONFIGURED", color: "muted" }],
@@ -771,7 +897,7 @@ function withdrawFlowDiagram(note) {
   const detail = note ? `${formatEther(note.value)} ETH` : "FROM THE VAULT";
   return actionFlowDiagram({
     ariaLabel: "Selected note withdraws to your account",
-    source: { icon: note ? chainInitials(label) : "?", title: label, detail, color: "yellow" },
+    source: { icon: note ? chainInitials(label) : "?", title: label, detail, color: note ? chainBrand(note.chain, label) : "muted" },
     targets: [{ icon: "YOU", title: "YOUR ACCOUNT", detail: "FINAL RECIPIENT", color: "pink" }],
     inactive: !note,
   });
@@ -783,27 +909,18 @@ function chainInitials(label) {
 
 /** Default left pane: a chain map showing where the user's current notes live. */
 function homeView() {
-  const b = balances();
   const l1Notes = state.notes.filter((note) => note.status !== "spent");
   const l1Total = l1Notes.reduce((sum, note) => sum + BigInt(note.value), 0n);
   const destinations = evmChains().map((chain) => noteMapDestination(chain.key, chain.chainName));
   if (state.starknet?.configured || l2List("starknet").length) {
     destinations.push(noteMapDestination("starknet", "Starknet"));
   }
-  const totalShielded = b.spendable + b.pending;
   return `
     <section class="panel home-panel">
       <div class="map-heading">
         <div><span class="eyebrow">WHERE YOUR NOTES LIVE</span><h2>TRANSIT MAP</h2><p>Chains are stations. F5 is the interchange.</p></div>
-        <div class="map-total"><span>TOTAL SHIELDED</span><strong>${fmt(totalShielded)} <small>ETH</small></strong></div>
       </div>
       ${metroMap(destinations, l1Total, l1Notes.length)}
-      ${noticeView()}
-      <div class="map-legend">
-        <span><i class="legend-dot available"></i> AVAILABLE</span>
-        <span><i class="legend-dot pending"></i> BRIDGED ON L1 · AWAITING L2</span>
-        <span><i class="legend-dot empty"></i> NO NOTES</span>
-      </div>
       <p class="micro">current shielded notes only ★ spent and withdrawn history is not counted</p>
       ${renderVaultIdentityControls({
         shielded: state.identity.shielded,
@@ -811,6 +928,7 @@ function homeView() {
         registered: state.registered,
         busy: state.busy,
       })}
+      ${noticeView()}
     </section>`;
 }
 
@@ -825,11 +943,10 @@ function noteMapDestination(key, label) {
   const total = available + pending;
   const stateClass = available > 0n ? "has-value" : pending > 0n ? "has-pending" : "is-empty";
   const initials = key === "starknet" ? "SN" : label.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
-  return { label, initials, total, available, pending, noteCount: notes.length, stateClass };
+  return { key, label, initials, total, available, pending, noteCount: notes.length, stateClass, color: chainBrand(key, label) };
 }
 
 function metroMap(destinations, l1Total, l1NoteCount) {
-  const routeColors = ["blue", "pink", "yellow", "teal"];
   const count = Math.max(destinations.length, 1);
   const height = Math.max(460, 120 + count * 118);
   const centerY = height / 2;
@@ -837,7 +954,7 @@ function metroMap(destinations, l1Total, l1NoteCount) {
   const step = count === 1 ? 0 : (height - 144) / (count - 1);
   const destinationLayout = destinations.map((destination, index) => {
     const y = topY + index * step;
-    const color = routeColors[index % routeColors.length];
+    const color = destination.color;
     const path = `M 462 ${centerY} C 535 ${centerY}, 580 ${y}, 733 ${y}`;
     return { destination, y, color, path };
   });
@@ -846,7 +963,7 @@ function metroMap(destinations, l1Total, l1NoteCount) {
   const destinationCards = destinationLayout.map(({ destination, y, color }) => `
     <g class="metro-destination ${destination.stateClass}">
       <circle class="metro-badge route-${color}" cx="733" cy="${y}" r="23" />
-      <text class="metro-badge-text" x="733" y="${y + 1}">${escapeHtml(destination.initials)}</text>
+      <text class="metro-badge-text route-label-${color}" x="733" y="${y + 1}">${escapeHtml(destination.initials)}</text>
       <text class="metro-chain-total" x="770" y="${y - 25}"><tspan>${fmt(destination.total)}</tspan><tspan class="metro-currency" dx="7">ETH</tspan></text>
       <text class="metro-chain-name" x="770" y="${y + 3}">${escapeHtml(destination.label)}</text>
       <text class="metro-chain-detail" x="770" y="${y + 28}">${fmt(destination.available)} AVAIL · ${fmt(destination.pending)} PENDING · ${destination.noteCount} NOTE${destination.noteCount === 1 ? "" : "S"}</text>
@@ -854,13 +971,13 @@ function metroMap(destinations, l1Total, l1NoteCount) {
 
   return `<div class="note-map metro-map">
     <svg viewBox="0 0 1060 ${height}" role="img" aria-label="Shielded note transit map from Ethereum through F5 to configured L2 chains">
-      <line class="metro-route route-teal" x1="147" y1="${centerY}" x2="402" y2="${centerY}" />
+      <line class="metro-route route-ethereum" x1="147" y1="${centerY}" x2="402" y2="${centerY}" />
       ${routes}
       <g class="metro-source-card">
         <text class="metro-chain-total" x="105" y="${centerY - 25}" text-anchor="end"><tspan>${fmt(l1Total)}</tspan><tspan class="metro-currency" dx="7">ETH</tspan></text>
         <text class="metro-chain-name" x="105" y="${centerY + 4}" text-anchor="end">ETHEREUM</text>
         <text class="metro-chain-detail" x="105" y="${centerY + 30}" text-anchor="end">${l1NoteCount} READY NOTE${l1NoteCount === 1 ? "" : "S"}</text>
-        <circle class="metro-badge route-teal" cx="147" cy="${centerY}" r="24" />
+        <circle class="metro-badge route-ethereum" cx="147" cy="${centerY}" r="24" />
         <text class="metro-badge-text" x="147" y="${centerY + 1}">Ξ</text>
       </g>
       ${destinationCards}
@@ -879,8 +996,8 @@ function depositView() {
       ${flowHead("L1 · ETHEREUM", "DEPOSIT", "Put value into the pool. The note's secrets come from your phrase, so it survives a wiped browser.")}
       ${depositFlowDiagram()}
       ${noticeView()}
-      <div class="field-label"><span>FROM</span><span><i class="dot blue"></i> ${config?.chainName ?? "LOADING"}</span></div>
-      <div class="amount-field"><div><input id="amount" value="${sanitizeAmount(state.amount)}" inputmode="decimal" autocomplete="off" /><small>Any amount · minimum ${minimum}</small></div><button class="asset">${icons.eth} ${config?.symbol ?? "ETH"}</button></div>
+      <div class="field-label"><span>FROM</span><span>${state.walletBalance === null ? "" : `BALANCE ${fmt(BigInt(state.walletBalance))} ${config?.symbol ?? "ETH"}　·　`}<i class="dot route-ethereum"></i> ${config?.chainName ?? "LOADING"}</span></div>
+      <div class="amount-field"><div><input id="amount" value="${sanitizeAmount(state.amount)}" inputmode="decimal" autocomplete="off" /><small>Any amount · minimum ${minimum}</small></div>${state.walletBalance === null ? "" : `<button id="max-amount" type="button" class="max-chip" ${state.busy ? "disabled" : ""}>MAX</button>`}<button class="asset">${icons.eth} ${config?.symbol ?? "ETH"}</button></div>
       <div class="field-label pool-label"><span>VARIABLE AMOUNT</span><span>${config ? `${config.vettingFeeBps / 100}% VETTING FEE` : "LOADING"}</span></div>
       <button id="action" class="primary" ${state.busy ? "disabled" : ""}>${state.busy ? "DEPOSITING… CONFIRM IN YOUR WALLET" : "DEPOSIT TO POOL →"}</button>
       <div class="micro">derived at the next unused index　★　non-custodial</div>
@@ -900,14 +1017,14 @@ function sendView() {
   const ready = state.notes.filter((n) => n.status !== "spent");
   const selected = pickNote();
   const recipientMode = send.recipientMode === "other" ? "other" : "self";
-  const targetOption = (value, label, disabled = false) => `<label class="bridge-option target-option ${disabled ? "is-disabled" : ""}">
+  const targetOption = (value, key, label, disabled = false) => `<label class="bridge-option target-option ${disabled ? "is-disabled" : ""}">
     <input type="radio" name="send-chain" value="${value}" ${send.destinationChainId === value ? "checked" : ""} ${disabled ? "disabled" : ""} />
-    <span class="bridge-option-icon">${escapeHtml(chainInitials(label))}</span>
+    <span class="bridge-option-icon route-${chainBrand(key, label)}">${escapeHtml(key === "starknet" ? "SN" : chainInitials(label))}</span>
     <span><b>${escapeHtml(label)}</b><small>${disabled ? "UNAVAILABLE" : "BRIDGE DESTINATION"}</small></span>
   </label>`;
   const noteOption = (note) => `<label class="bridge-option note-option">
     <input type="radio" name="send-note" value="${note.commitment}" ${selected?.commitment === note.commitment ? "checked" : ""} />
-    <span class="bridge-option-icon">Ξ</span>
+    <span class="bridge-option-icon route-ethereum">Ξ</span>
     <span><b>${formatEther(BigInt(note.value))} ETH</b><small>#${note.index} · ${short(note.commitment)}</small></span>
     <span class="pill ok">READY</span>
   </label>`;
@@ -927,8 +1044,8 @@ function sendView() {
         ${ready.length ? ready.map(noteOption).join("") : `<div class="note-empty">No spendable L1 notes.</div>`}
       </fieldset>
       <fieldset class="bridge-choice target-choice"><legend>BRIDGE TARGET</legend>
-        ${evmChains().map((chain) => targetOption(String(chain.chainId), chain.chainName)).join("")}
-        ${state.starknet ? targetOption(STARKNET_CHAIN_ID, "Starknet Sepolia", !starknetUsable) : ""}
+        ${evmChains().map((chain) => targetOption(String(chain.chainId), chain.key, chain.chainName)).join("")}
+        ${state.starknet ? targetOption(STARKNET_CHAIN_ID, "starknet", "Starknet Sepolia", !starknetUsable) : ""}
       </fieldset>
       ${starknetWarning()}
       <fieldset class="bridge-choice recipient-choice"><legend>WHO IS RECEIVING THE NOTE?</legend>
@@ -938,6 +1055,7 @@ function sendView() {
       ${recipientMode === "other" ? `
         <label class="input-label">RECIPIENT L1 ADDRESS
           <input id="send-recipient" placeholder="0x… registered Ethereum address" value="${escapeHtml(send.recipientKey)}" autocomplete="off" spellcheck="false" />
+          ${fieldProblemSlot("send-recipient-problem", evmAddressProblem(send.recipientKey))}
         </label>
         <div class="key-actions"><button id="resolve-recipient" class="secondary-btn">CHECK REGISTRY</button></div>
         ${send.resolved ? `<div class="notice teal-card"><strong>REGISTERED RECIPIENT</strong><span>B ${short(send.resolved.B[0].toString())}…<br>V ${short(send.resolved.V[0].toString())}…</span></div>` : ""}`
@@ -945,13 +1063,14 @@ function sendView() {
       ${draft?.relayed || draft?.proof || recipientMode === "other" ? `<div class="notice ${draft?.relayed ? "teal-card" : "pink-card"}">
         <strong>${draft?.relayed ? "DELIVERED" : draft?.proof ? "PROOF READY" : "REGISTRY ADDRESS ONLY"}</strong>
         <span>${draft?.relayed
-          ? "The note is bridging. The recipient finds it by scanning. You send them nothing, and you can close this tab."
+          ? `The note is bridging. The recipient finds it by scanning. You send them nothing, and you can close this tab.${txLink(draft.relayed.txHash ?? draft.relayed.hash, "l1", "VIEW L1 RELAY")}`
           : draft?.proof
-            ? `C_dest ${short(draft.destNote.cDest.toString())} · bridging ${formatEther(draft.bridgedValue)} ETH after the relay fee.`
+            ? `C_dest ${short(draft.destNote.cDest.toString())}${copyButton(draft.destNote.cDest.toString(), "C_dest")} · bridging ${formatEther(draft.bridgedValue)} ETH after the relay fee.`
             : recipientMode === "self"
               ? "Only this vault's public shielded keys are used. Your private keys stay local."
               : "The L1 address must have published a shielded address in the registry. Private keys are never requested."}</span>
       </div>` : ""}
+      ${state.busy && !draft?.proof ? provingNotice() : ""}
       <button id="action" class="primary" ${ready.length && send.destinationChosen && recipientReady && !draft?.relayed && !state.busy ? "" : "disabled"}>${action}</button>
       <div class="micro">self uses this vault　★　other users must be registered on L1</div>
     </section>`;
@@ -970,7 +1089,7 @@ function receiveView() {
     : null;
   const noteOption = (candidate) => `<label class="bridge-option note-option" data-pick-l2="${candidate.id}">
     <input type="radio" name="withdraw-note" value="${candidate.id}" ${String(r.selected) === candidate.id ? "checked" : ""} />
-    <span class="bridge-option-icon">${escapeHtml(chainInitials(chainLabel(candidate.chain)))}</span>
+    <span class="bridge-option-icon route-${chainBrand(candidate.chain, chainLabel(candidate.chain))}">${escapeHtml(candidate.chain === "starknet" ? "SN" : chainInitials(chainLabel(candidate.chain)))}</span>
     <span><b>${formatEther(BigInt(candidate.value))} ETH</b><small>${escapeHtml(chainLabel(candidate.chain))} · ${short(candidate.id)}</small></span>
     <span class="pill ok">SPENDABLE</span>
   </label>`;
@@ -997,14 +1116,15 @@ function receiveView() {
           </fieldset>`}
       ${note ? `
         <div class="flow-step active"><span class="flow-number">▸</span><div><span class="eyebrow">SELECTED</span><h3>${formatEther(note.value)} ETH · ${chainLabel(note.chain)}</h3><p>${statusLabel(st)}</p></div></div>
-        <label class="input-label">FINAL RECIPIENT ${note.chain === "starknet" ? "(STARKNET FELT252)" : "ADDRESS"}<input id="recv-recipient" placeholder="${note.chain === "starknet" ? "0x… or decimal felt252" : "0x… where the funds actually land"}" value="${escapeHtml(r.recipient)}" /></label>`
+        <label class="input-label">FINAL RECIPIENT ${note.chain === "starknet" ? "(STARKNET FELT252)" : "ADDRESS"}<input id="recv-recipient" placeholder="${note.chain === "starknet" ? "0x… or decimal felt252" : "0x… where the funds actually land"}" value="${escapeHtml(r.recipient)}" autocomplete="off" spellcheck="false" />${fieldProblemSlot("recv-recipient-problem", recipientProblem(r.recipient, note.chain))}</label>`
         : ""}
       <div class="notice ${r.response ? "teal-card" : "pink-card"}">
         <strong>${r.response ? "FUNDS RELEASED" : r.proof ? "L2 PROOF READY" : "AUTOMATIC ACTIVATION"}</strong>
-        <span>${r.response ? "The destination pool released the note to your address."
+        <span>${r.response ? `The destination pool released the note to your address.${txLink(r.response.hash ?? r.response.txHash, note?.chain, "VIEW WITHDRAWAL")}`
           : r.proof ? "Proved locally. F5 submits the final withdrawal and pays the gas."
           : "Once bridge backing lands, F5 activates the note automatically. No recipient key material or user transaction is needed."}</span>
       </div>
+      ${state.busy && !r.proof && st === "activated" ? provingNotice() : ""}
       <button id="action" class="primary" ${note && !r.response && !state.busy ? "" : "disabled"}>${action}</button>
       <div class="micro">keys derived from your phrase　★　notes are found, not announced</div>
     </section>`;
@@ -1060,8 +1180,48 @@ function ragequitView() {
       </fieldset>
       ${r.proof && selected ? `<div class="notice pink-card"><strong>PROOF READY</strong><span>The proof was generated locally. Submitting it will reveal the selected note and return ${formatEther(BigInt(selected.value))} ETH to ${escapeHtml(state.account)}.</span></div>` : ""}
       <label class="confirm-row ragequit-confirm"><input type="checkbox" id="ragequit-confirm" ${confirmed ? "checked" : ""} ${!selected || r.response ? "disabled" : ""} /> I understand this publicly links my deposit address and amount, burns the selected note, and cannot be undone.</label>
+      ${state.busy && !checking && !r.proof ? provingNotice() : ""}
       <button id="action" class="primary danger-action" ${canAct ? "" : "disabled"}>${action}</button>
       <div class="micro">no relayer ★ original depositor pays L1 gas ★ remains available after pool wind-down</div>
+    </section>`;
+}
+
+/**
+ * ACTIVITY. One chronological record of what this vault has done.
+ *
+ * Everything here is reconstructed from caches the app already keeps, so it is
+ * exactly as complete as those caches: a note recovered from chain events carries
+ * no local timestamp, and its row says so rather than inventing one.
+ */
+function activityView() {
+  const entries = buildActivity(state.notes, state.withdrawn, chainLabel);
+  const kindColor = { deposit: "ethereum", bridge: "optimism", withdraw: "starknet", ragequit: "muted" };
+  const kindIcon = { deposit: "↓", bridge: "→", withdraw: "↑", ragequit: "!" };
+
+  const row = (entry) => {
+    const age = relativeTime(entry.at);
+    return `
+      <div class="vnote activity-row ${entry.kind === "ragequit" ? "is-public" : ""}">
+        <span class="note-icon route-${kindColor[entry.kind] ?? "ethereum"}" aria-hidden="true">${entry.kind === "deposit" || entry.kind === "withdraw" || entry.kind === "bridge" ? kindIcon[entry.kind] : "!"}</span>
+        <div>
+          <strong>${escapeHtml(entry.title)} · ${formatEther(BigInt(entry.value))} ETH</strong>
+          <small>${escapeHtml(entry.detail)}</small>
+          ${entry.hash ? txLink(entry.hash, entry.kind === "withdraw" ? entry.chain : "l1") : ""}
+        </div>
+        <span class="activity-age">${age ? escapeHtml(age) : "UNDATED"}</span>
+      </div>`;
+  };
+
+  return `
+    <section class="panel flow-panel">
+      ${flowHead("VAULT · RECORD", "ACTIVITY", "Every deposit, bridge, withdrawal, and public exit this vault knows about, newest first.")}
+      ${noticeView()}
+      <div class="activity-list">
+        ${entries.length
+          ? entries.map(row).join("")
+          : `<div class="note-empty">Nothing has happened yet.<br><span>Deposit to start, or run SCAN to rebuild from the chain.</span></div>`}
+      </div>
+      <div class="micro">rebuilt from this vault's local caches　★　a recovered note has no local timestamp</div>
     </section>`;
 }
 
@@ -1079,7 +1239,24 @@ function errorView() {
 }
 function noticeView() {
   if (!state.notice) return "";
-  return `<div class="notice teal-card" role="status"><strong>NOTE</strong><span class="pre">${escapeHtml(state.notice)}</span></div>`;
+  return `<div class="notice teal-card dismissible-notice" role="status"><button type="button" class="notice-dismiss" data-dismiss-notice aria-label="Dismiss note">×</button><strong>NOTE</strong><span class="pre">${escapeHtml(state.notice)}</span>${state.noticeTx ?? ""}</div>`;
+}
+
+/**
+ * Shown while a proof is being generated, in the frame `guard` yields before the
+ * work starts.
+ *
+ * This is a warning, not a progress indicator, and it cannot be anything else:
+ * snarkjs runs the witness and proof on the main thread, so for the next tens of
+ * seconds no timer fires and no pixel repaints. An elapsed counter here would
+ * simply freeze at 0 and read as a hang. Naming the freeze in advance is the only
+ * honest signal available until proving moves to a Worker.
+ */
+function provingNotice() {
+  return `<div class="notice pink-card proving-notice" role="status" aria-live="polite">
+    <strong>PROVING LOCALLY</strong>
+    <span>This runs in your browser and takes up to a minute. The tab will stop responding while it does — that is expected. Do not close it.</span>
+  </div>`;
 }
 
 function starknetWarning() {
@@ -1214,6 +1391,60 @@ function captureForm() {
       state.setup.words[Number(input.dataset.mnemonicWord)] = normalizeWord(input.value);
     });
   }
+  saveFormDraft();
+}
+
+/**
+ * Form state that survives a reload, in the same tab-scoped storage as the
+ * unlocked session.
+ *
+ * A bridge takes a note choice, a destination, and a recipient before it takes a
+ * minute of proving — losing all of that to a stray refresh means re-entering it
+ * from memory. Only the user's *choices* are kept.
+ *
+ * The draft proof is deliberately excluded: it carries the selected note's
+ * nullifier and secret, and the vault's rule is that spend material lives in the
+ * encrypted cache or nowhere. A restored form re-proves; it never resumes a proof.
+ */
+const FORM_DRAFT_KEY = "f5-form-draft-v1";
+
+function saveFormDraft() {
+  if (!state.identity) return;
+  try {
+    sessionStorage.setItem(FORM_DRAFT_KEY, JSON.stringify({
+      version: 1,
+      amount: state.amount,
+      send: {
+        noteCommitment: state.send.noteCommitment,
+        destinationChainId: state.send.destinationChainId,
+        destinationChosen: state.send.destinationChosen,
+        recipientMode: state.send.recipientMode,
+        recipientKey: state.send.recipientKey,
+      },
+      receive: { recipient: state.receive.recipient, selected: state.receive.selected },
+    }));
+  } catch { /* Storage can be unavailable in hardened browser modes. */ }
+}
+
+function restoreFormDraft() {
+  let draft;
+  try {
+    draft = JSON.parse(sessionStorage.getItem(FORM_DRAFT_KEY) ?? "null");
+  } catch {
+    return;
+  }
+  if (draft?.version !== 1) return;
+  if (typeof draft.amount === "string" && draft.amount) state.amount = draft.amount;
+  Object.assign(state.send, draft.send ?? {});
+  Object.assign(state.receive, draft.receive ?? {});
+  // `captureForm` snapshots before the radio handler sets this, so the stored flag
+  // can trail the stored chain id by one interaction. It is derivable, so derive it
+  // rather than restoring a form whose destination reads chosen and acts unchosen.
+  state.send.destinationChosen = Boolean(state.send.destinationChainId);
+}
+
+function clearFormDraft() {
+  try { sessionStorage.removeItem(FORM_DRAFT_KEY); } catch { /* best effort */ }
 }
 
 function normalizePhrase(value) {
@@ -1260,6 +1491,38 @@ function escapeHtml(v) {
   return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 function short(v) { const s = String(v); return s.length > 16 ? `${s.slice(0, 8)}…${s.slice(-6)}` : s; }
+/**
+ * A copy affordance for a value the UI only ever shows truncated. Without this a
+ * commitment is visible but unrecoverable — there is no other path to the full
+ * digits, which is exactly what a user needs when a note looks stuck.
+ */
+/**
+ * A slot for an inline field problem, updated in place as the user types.
+ *
+ * Written straight to the DOM rather than through `render()` on purpose: a full
+ * re-render on every keystroke would rebuild the input and throw away the caret
+ * position mid-word.
+ */
+function fieldProblemSlot(id, problem) {
+  return `<small class="field-problem" id="${id}" role="alert">${escapeHtml(problem)}</small>`;
+}
+
+/** Is the user actively typing into a field right now? */
+function isEditing(element) {
+  if (!element || !app.contains(element)) return false;
+  const tag = element.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
+
+function showFieldProblem(id, problem) {
+  const slot = app.querySelector(`#${id}`);
+  if (slot) slot.textContent = problem;
+}
+
+function copyButton(value, label = "Value") {
+  if (!value) return "";
+  return `<button type="button" class="copy-chip" data-copy="${escapeHtml(value)}" data-copy-label="${escapeHtml(label)}" title="Copy ${escapeHtml(label.toLowerCase())}" aria-label="Copy ${escapeHtml(label.toLowerCase())}">COPY</button>`;
+}
 /** Format a wei bigint down to a compact ETH string for the header numbers. */
 function fmt(wei) {
   const s = formatEther(wei);
@@ -1430,9 +1693,59 @@ async function connectWallet() {
     invalidateRagequitAuthorization({ clearEligibility: true });
   }
   state.account = account;
-  state.registered = null;
+  state.registered = state.identity && cachedPublicationStatus(localStorage, account, state.identity.shielded) ? true : null;
+  await refreshWalletBalance();
   await checkRegistration();
   if (state.identity && state.view === "ragequit") await refreshRagequitEligibility();
+}
+
+/**
+ * Gas held back by MAX. The pool's Merkle insert dominates the deposit, so this is
+ * budgeted generously: overshooting costs the user a little unspent headroom, while
+ * undershooting hands them a transaction their balance cannot pay for.
+ */
+const DEPOSIT_GAS_BUDGET = 400_000n;
+
+/** Read the connected wallet's L1 balance. Best-effort: a failure just hides MAX. */
+async function refreshWalletBalance() {
+  if (!state.account || !state.config) {
+    state.walletBalance = null;
+    return;
+  }
+  try {
+    state.walletBalance = (await readClient().getBalance({ address: state.account })).toString();
+  } catch {
+    state.walletBalance = null;
+  }
+}
+
+/** The largest depositable amount: balance less a reserve for the deposit's own gas. */
+async function maxDepositAmount() {
+  await refreshWalletBalance();
+  if (state.walletBalance === null) throw new Error("Connect a wallet to read your balance.");
+
+  let gasPrice = 0n;
+  try {
+    gasPrice = await readClient().getGasPrice();
+  } catch { /* Fall back to a flat reserve rather than failing the button. */ }
+  const balance = BigInt(state.walletBalance);
+  const reserve = gasPrice > 0n ? gasPrice * DEPOSIT_GAS_BUDGET * 2n : parseEther("0.002");
+  if (balance <= reserve) throw new Error(`Balance does not cover a deposit plus ${state.config.chainName} gas.`);
+  return floorEther(balance - reserve);
+}
+
+/**
+ * Format wei as ETH truncated — never rounded — to `decimals` places.
+ *
+ * Rounding up here would put a number above the wallet balance into the amount
+ * field, so the deposit would fail the balance check it was meant to satisfy.
+ */
+function floorEther(wei, decimals = 6) {
+  const text = formatEther(wei);
+  if (!text.includes(".")) return text;
+  const [whole, frac] = text.split(".");
+  const kept = frac.slice(0, decimals).replace(/0+$/, "");
+  return kept ? `${whole}.${kept}` : whole;
 }
 
 async function signIdentityMessage() {
@@ -1477,8 +1790,8 @@ async function copySetupMnemonic() {
   state.notice = "Recovery phrase copied. Store it somewhere safe and clear it from your clipboard when finished.";
 }
 
-async function copyShieldedKey(label, value) {
-  if (!value) throw new Error("No shielded key is available to copy.");
+async function copyValue(label, value) {
+  if (!value) throw new Error(`No ${String(label || "value").toLowerCase()} is available to copy.`);
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value);
   } else {
@@ -1491,9 +1804,9 @@ async function copyShieldedKey(label, value) {
     textarea.select();
     const copied = document.execCommand("copy");
     textarea.remove();
-    if (!copied) throw new Error(`Could not copy the ${String(label || "shielded key").toLowerCase()}.`);
+    if (!copied) throw new Error(`Could not copy the ${String(label || "value").toLowerCase()}.`);
   }
-  state.notice = `${label || "Shielded key"} copied.`;
+  state.notice = `${label || "Value"} copied.`;
 }
 
 async function confirmIdentitySetup() {
@@ -1591,6 +1904,7 @@ async function afterUnlock() {
   state.receive.scannedCount = l2Scan.scannedCount;
   state.receive.index = {};
   state.withdrawn = await loadL2History(state.identity.vaultKey, scope);
+  state.registered = cachedPublicationStatus(localStorage, state.account, state.identity.shielded) ? true : null;
 
   // Notes written before the mnemonic existed used pure local entropy, so they
   // are NOT re-derivable — migrate them into the vault or they are stranded.
@@ -1623,6 +1937,8 @@ async function afterUnlock() {
 
 async function checkRegistration() {
   if (!state.identity || !state.account || !state.config?.rpcUrl) return;
+  const cached = cachedPublicationStatus(localStorage, state.account, state.identity.shielded);
+  if (cached) state.registered = true;
   try {
     const { SHIELDED_SCHEME_ID, ERC6538_REGISTRY, encodeShieldedMetaAddress } = await sdk();
     const stored = await readClient().readContract({
@@ -1631,8 +1947,9 @@ async function checkRegistration() {
     });
     const mine = encodeShieldedMetaAddress(state.identity.shielded);
     state.registered = stored?.toLowerCase() === mine.toLowerCase();
+    storePublicationStatus(localStorage, state.account, state.identity.shielded, state.registered);
   } catch {
-    state.registered = null;
+    state.registered = cached ? true : null;
   }
 }
 
@@ -1656,7 +1973,9 @@ async function registerShieldedAddress() {
   });
   await readClient().waitForTransactionReceipt({ hash });
   state.registered = true;
+  storePublicationStatus(localStorage, state.account, state.identity.shielded, true);
   state.notice = "Shielded address published. Senders can now resolve it from your address.";
+  state.noticeTx = txLink(hash, "l1");
 }
 
 /** Resolve either this vault or another user's registered L1 address. */
@@ -1702,18 +2021,26 @@ async function recoverL1Notes() {
     value: BigInt(d.value), precommitment: BigInt(d.precommitment),
   }));
 
-  // Preserve any local `spent` flag: recovery walks public deposits and cannot
-  // tell a spent note from a live one, so a rebuild must not resurrect history.
-  const prev = new Map(state.notes.map((n) => [n.commitment, n.status]));
-  const recovered = recoverNotes(state.identity.mnemonic, BigInt(state.config.scope), deposits).map((n) => ({
-    index: n.index.toString(),
-    commitment: n.commitment.toString(),
-    label: n.label.toString(),
-    value: n.value.toString(),
-    nullifier: n.nullifier.toString(),
-    secret: n.secret.toString(),
-    status: prev.get(n.commitment.toString()) ?? "ready",
-  }));
+  // Preserve local-only fields: recovery walks public deposits and cannot tell a
+  // spent note from a live one, nor when or in which transaction it moved. Rebuilding
+  // from the chain alone would resurrect spent notes AND silently drop every local
+  // annotation (`spentTo`, `spentBy`, `ragequitHash`, the activity timestamps) on
+  // every single scan.
+  const prev = new Map(state.notes.map((n) => [n.commitment, n]));
+  const recovered = recoverNotes(state.identity.mnemonic, BigInt(state.config.scope), deposits).map((n) => {
+    const commitment = n.commitment.toString();
+    const local = prev.get(commitment);
+    return {
+      ...local,
+      index: n.index.toString(),
+      commitment,
+      label: n.label.toString(),
+      value: n.value.toString(),
+      nullifier: n.nullifier.toString(),
+      secret: n.secret.toString(),
+      status: local?.status ?? "ready",
+    };
+  });
 
   // Keep legacy (non-derivable) notes; they can never be recovered this way.
   const legacy = state.notes.filter((n) => n.legacy);
@@ -1742,16 +2069,20 @@ async function recoverL1Notes() {
  * the recipient and tie an IP to a note set. So we fetch every candidate and
  * match entirely in the browser.
  */
-async function scanForNotes() {
+async function scanForNotes({ only = null, quiet = false } = {}) {
   if (!state.identity) throw new Error("Unlock your vault first.");
 
   const r = state.receive;
   const previousScanned = r.scanned;
   const previousScannedCount = r.scannedCount;
+  const previousIndex = r.index;
   r.scanned = [];
   r.scannedCount = 0;
-  r.index = {};
-  state.notice = null;
+  // A partial scan must keep the indexes it is not refreshing: `prepareL2Proof`
+  // reads `r.index[chain]`, so dropping an untouched chain's index would force a
+  // needless refetch at proving time.
+  r.index = only ? Object.fromEntries(Object.entries(previousIndex).filter(([chain]) => !only.includes(chain))) : {};
+  if (!quiet) state.notice = null;
 
   let noteService = null;
   const scanL2 = async (chain, path) => {
@@ -1788,23 +2119,22 @@ async function scanForNotes() {
   // The ordering here is deliberate: L1 recovery/reconciliation always settles
   // first, then configured EVM destinations in server order, then Starknet. The
   // runner awaits each route and never fans these requests out with Promise.all.
-  const routeColors = ["blue", "pink", "yellow", "teal"];
   const configuredEvmChains = evmChains();
   const routes = [
     {
       key: "l1",
       label: "L1 · Ethereum",
       icon: "Ξ",
-      color: "teal",
+      color: "ethereum",
       scanningDetail: "Reading deposits and rebuilding phrase-derived notes…",
       continueOnError: true,
       run: recoverL1Notes,
     },
-    ...configuredEvmChains.map((chain, index) => ({
+    ...configuredEvmChains.map((chain) => ({
       key: chain.key,
       label: `L2 · ${chain.chainName}`,
       icon: chainInitials(chain.chainName),
-      color: routeColors[index % routeColors.length],
+      color: chainBrand(chain.key, chain.chainName),
       scanningDetail: `Fetching ${chain.chainName} note index…`,
       continueOnError: true,
       run: () => scanL2(chain.key, `/api/l2/${chain.key}/index`),
@@ -1815,29 +2145,36 @@ async function scanForNotes() {
       key: "starknet",
       label: "L2 · Starknet",
       icon: "SN",
-      color: routeColors[configuredEvmChains.length % routeColors.length],
+      color: "starknet",
       scanningDetail: "Fetching Starknet note index…",
       continueOnError: true,
       run: () => scanL2("starknet", "/api/starknet/index"),
     }] : []),
-  ];
+  ].filter((route) => !only || only.includes(route.key));
 
-  state.scanProgress = {
-    active: true,
-    steps: routes.map((route) => ({
-      key: route.key,
-      label: route.label,
-      icon: route.icon,
-      color: route.color,
-      status: "pending",
-      detail: "Waiting for the previous route",
-    })),
-  };
+  if (!routes.length) return;
+
+  // A quiet scan leaves the progress panel alone. It runs on a timer rather than a
+  // click, so painting a step list nobody asked for would flash the rail on its own.
+  if (!quiet) {
+    state.scanProgress = {
+      active: true,
+      steps: routes.map((route) => ({
+        key: route.key,
+        label: route.label,
+        icon: route.icon,
+        color: route.color,
+        status: "pending",
+        detail: "Waiting for the previous route",
+      })),
+    };
+  }
 
   let results;
   try {
     results = await runSequentialScan(routes, {
       async onStep(route, update) {
+        if (quiet) return;
         const step = state.scanProgress.steps.find((candidate) => candidate.key === route.key);
         if (step) Object.assign(step, update);
         render();
@@ -1845,7 +2182,7 @@ async function scanForNotes() {
       },
     });
   } finally {
-    state.scanProgress.active = false;
+    if (!quiet) state.scanProgress.active = false;
   }
 
   const failures = results.filter((result) => result.status === "error");
@@ -1856,33 +2193,15 @@ async function scanForNotes() {
     throw new Error(failures.map(({ step, error }) => `${step.label}: ${describeError(error)}`).join(" · ") || "Scan could not start.");
   }
 
-  // A self-bridge confirmed on L1 must remain visible while its L2 delivery is
-  // still in flight. A successful scan replaces it with the live destination
-  // note (same chain + C_dest); until then, preserve the encrypted pending entry.
-  const seen = new Set(r.scanned.map((note) => `${note.chain}:${note.cDest}`));
-  for (const note of previousScanned) {
-    const id = `${note.chain}:${note.cDest}`;
-    if (note._status === "pending" && !seen.has(id)) {
-      r.scanned.push(note);
-      seen.add(id);
-    }
-  }
+  // Carry over everything this pass could not speak for: notes on routes that
+  // failed or were never visited, and in-flight self-bridges the destination
+  // cannot see yet. See `preservedNotes` for why each case exists.
+  r.scanned.push(...preservedNotes({
+    previous: previousScanned,
+    fresh: r.scanned,
+    refreshedRoutes: completed.map(({ step }) => step.key),
+  }));
   r.scannedCount = Math.max(r.scannedCount, previousScannedCount, r.scanned.length);
-
-  // A transient failure on one destination must not erase that chain's last
-  // encrypted cache. Successful routes replace their notes; failed routes keep
-  // their previous matches until they can be refreshed.
-  const failedChains = new Set(failures.map(({ step }) => step.key).filter((key) => key !== "l1"));
-  if (failedChains.size) {
-    for (const note of previousScanned) {
-      const id = `${note.chain}:${note.cDest}`;
-      if (failedChains.has(note.chain) && !seen.has(id)) {
-        r.scanned.push(note);
-        seen.add(id);
-      }
-    }
-    r.scannedCount = Math.max(r.scannedCount, previousScannedCount, r.scanned.length);
-  }
   if (r.selected && !selectedNote()) r.selected = null;
   if (state.config?.scope) {
     await saveL2Scan(state.identity.vaultKey, state.config.scope, {
@@ -1890,6 +2209,7 @@ async function scanForNotes() {
       scannedCount: r.scannedCount,
     });
   }
+  if (quiet) return;
   const l2Count = Object.keys(r.index).length;
   const summary = r.scanned.length
     ? `Scan complete. Found ${r.scanned.length} note${r.scanned.length === 1 ? "" : "s"} across your L2 routes.`
@@ -1899,6 +2219,45 @@ async function scanForNotes() {
   state.notice = failures.length
     ? `${summary} ${failures.length} route${failures.length === 1 ? "" : "s"} could not be scanned.`
     : summary;
+}
+
+/**
+ * Re-scan only the destinations with a note still in flight.
+ *
+ * The timer that drives this used to re-render and nothing more, so it ticked the
+ * ETA down while never asking whether the note had actually landed — a delivered
+ * note kept reading AWAITING L2 until the user hit SCAN by hand. Refreshing just
+ * the in-flight chains costs one index fetch per waiting route and lets the
+ * pending state resolve itself.
+ *
+ * Deliberately outside `guard`: this is unprompted background work, so it must not
+ * paint the workspace busy or disable the buttons under the user's cursor.
+ */
+let inFlightRefresh = false;
+
+async function refreshInFlightRoutes() {
+  if (!state.identity || state.busy || inFlightRefresh) return;
+  // Never re-render under a user who is mid-entry. `render()` replaces the whole
+  // tree, so a background refresh landing between two keystrokes would take the
+  // focus and the caret with it.
+  if (isEditing(document.activeElement)) return;
+  const waiting = [...new Set(state.receive.scanned
+    .filter((note) => note._status === "pending" || note._status === "activate")
+    .map((note) => note.chain))];
+  if (!waiting.length) return;
+
+  inFlightRefresh = true;
+  try {
+    captureForm();
+    await scanForNotes({ only: waiting, quiet: true });
+    render();
+  } catch (error) {
+    // A background refresh that fails is not the user's problem — the note simply
+    // keeps its last known state until the next tick or a manual SCAN.
+    console.warn("[auto-refresh] in-flight route scan skipped:", error);
+  } finally {
+    inFlightRefresh = false;
+  }
 }
 
 async function fetchIndex(chain, path) {
@@ -2040,9 +2399,15 @@ async function runDeposit() {
     nullifier: nullifier.toString(),
     secret: secret.toString(),
     status: "ready",
+    // Local-only provenance for the activity log. The chain knows all of this, but
+    // recovering it would mean a receipt lookup per note on every scan.
+    depositedAt: Date.now(),
+    depositHash: hash,
   }];
   await saveNotes(state.identity.vaultKey, state.config.scope, state.notes);
   state.notice = `Deposited ${formatEther(BigInt(event.value))} ${config.symbol} at index ${index}. Recoverable from your phrase.`;
+  state.noticeTx = txLink(hash, "l1");
+  await refreshWalletBalance();
   navigateVault("home", { replace: true, capture: false, clearMessages: false });
 }
 
@@ -2092,7 +2457,12 @@ async function runSend() {
     // The spent note is gone from the pool's perspective; mark it as history
     // rather than deleting it, so the portfolio can show what left.
     const spent = state.notes.find((n) => n.commitment === draft.selected.commitment);
-    if (spent) { spent.status = "spent"; spent.spentTo = String(draft.withdrawal.chainId); }
+    if (spent) {
+      spent.status = "spent";
+      spent.spentTo = String(draft.withdrawal.chainId);
+      spent.spentAt = Date.now();
+      spent.spentHash = result.txHash ?? result.hash ?? null;
+    }
     await saveNotes(state.identity.vaultKey, state.config.scope, state.notes);
     await rememberPendingSelfBridge(draft);
     return;
@@ -2259,11 +2629,13 @@ async function runRagequit() {
   selected.status = "spent";
   selected.spentBy = "ragequit";
   selected.ragequitHash = hash;
+  selected.spentAt = Date.now();
   await saveNotes(state.identity.vaultKey, state.config.scope, state.notes);
   r.response = { hash };
   r.proof = null;
   r.eligibility[selected.commitment] = { ...eligibility, spent: true };
   state.notice = `Ragequit confirmed. ${formatEther(BigInt(selected.value))} ${state.config.symbol} returned publicly to ${state.account}.`;
+  state.noticeTx = txLink(hash, "l1");
 }
 
 async function runReceive() {
@@ -2395,14 +2767,19 @@ async function boot() {
     try {
       await adoptMnemonic(mnemonic);
       await afterUnlock();
+      // Only after the caches are loaded: the restored choices point at notes that
+      // `afterUnlock` is what puts back in `state`.
+      restoreFormDraft();
     } catch {
       clearUnlockedSession();
+      clearFormDraft();
       state.identity = null;
       state.notes = [];
       state.withdrawn = {};
     }
   } else if (mnemonic) {
     clearUnlockedSession();
+    clearFormDraft();
   }
   render();
   if (state.identity && vaultViewFromPath(location.pathname) === "ragequit") {
@@ -2418,18 +2795,19 @@ window.addEventListener("popstate", () => {
 if (window.ethereum?.on) {
   window.ethereum.on("accountsChanged", (accounts) => {
     state.account = accounts?.[0] ?? "";
-    state.registered = null;
+    state.registered = state.identity && cachedPublicationStatus(localStorage, state.account, state.identity.shielded) ? true : null;
     invalidateRagequitAuthorization({ clearEligibility: true });
     render();
     if (state.identity) {
       void guard(async () => {
+        await refreshWalletBalance();
         await checkRegistration();
         if (state.view === "ragequit") await refreshRagequitEligibility();
       }, state.view === "ragequit" ? "ragequit-check" : null);
     }
   });
   window.ethereum.on("chainChanged", () => {
-    state.registered = null;
+    state.registered = state.identity && cachedPublicationStatus(localStorage, state.account, state.identity.shielded) ? true : null;
     invalidateRagequitAuthorization({ clearEligibility: true });
     render();
     if (state.identity && state.view === "ragequit") {
@@ -2437,8 +2815,4 @@ if (window.ethereum?.on) {
     }
   });
 }
-window.setInterval(() => {
-  if (!state.identity || state.busy || !state.receive.scanned.some((note) => note._status === "pending")) return;
-  captureForm();
-  render();
-}, 60_000);
+window.setInterval(() => { void refreshInFlightRoutes(); }, 60_000);

@@ -12,6 +12,9 @@
 .error-card strong{letter-spacing:1px}
 .error-card span{font:14px 'DM Mono';line-height:1.5;word-break:break-word}
 .dismiss{align-self:flex-start;margin-top:6px;background:var(--paper);color:var(--ink);border:4px solid var(--ink);box-shadow:4px 4px 0 var(--ink);padding:10px 14px;font:700 12px 'DM Mono';letter-spacing:1px}
+.dismissible-notice{position:relative;margin-top:22px;padding-right:62px}
+.notice-dismiss{position:absolute;top:10px;right:10px;display:grid;place-items:center;width:34px;height:34px;border:3px solid var(--ink);background:var(--paper);font:700 23px/1 'Space Grotesk';padding:0}
+.notice-dismiss:hover{background:var(--yellow)}
 
 /* The withdraw view renders a <select> and a <textarea> inside .input-label,
    but only `input` was ever styled, so those two rendered as raw browser widgets. */
@@ -114,7 +117,8 @@
 .notes-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:4px solid var(--ink);padding-bottom:12px}
 .notes-heading h2{margin:0;font-size:22px}
 .spent-toggle{display:flex;align-items:center;gap:8px;font:700 10px 'DM Mono';letter-spacing:.5px;cursor:pointer}
-.spent-toggle input{width:18px;height:18px;margin:0;accent-color:var(--ink)}
+.spent-toggle input{appearance:none;width:18px;height:18px;margin:0;border:2px solid var(--ink);background:var(--paper)}
+.spent-toggle input:checked{background-color:var(--yellow);background-image:linear-gradient(45deg,transparent 43%,var(--ink) 43%,var(--ink) 57%,transparent 57%),linear-gradient(-45deg,transparent 43%,var(--ink) 43%,var(--ink) 57%,transparent 57%)}
 .notes-scan-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0 2px;color:#666;font:500 10px 'DM Mono';line-height:1.4}
 .notes-scan-row .unlock{flex:none}
 .route-scan{border:3px solid var(--ink);background:var(--paper);margin:12px 0 4px}
@@ -139,6 +143,7 @@
 .vnote{display:flex;align-items:center;gap:12px;border:3px solid var(--ink);padding:12px 14px;margin-top:10px;background:var(--paper)}
 .vnote>div{flex:1;min-width:0}
 .vnote .note-icon{width:38px;height:38px;font-size:18px;flex:none}
+.note-icon[class*="route-"]{background:var(--route-color);color:var(--ink)}
 .vnote strong{display:block;font-size:18px}
 .vnote small{display:block;font:11px 'DM Mono';color:#666;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .vnote small.note-eta{margin-top:7px;color:var(--ink);font-size:9px;font-weight:700;letter-spacing:.35px;white-space:normal}
@@ -168,8 +173,8 @@
 .ghost{background:transparent;border:3px solid var(--ink);padding:10px 12px;font:700 11px 'DM Mono';letter-spacing:1px;flex:none}
 .ghost:hover{background:var(--ink);color:var(--yellow)}
 .flow-panel{padding:36px}
-.action-flow-diagram{margin:0 0 28px;padding:18px;border:5px solid var(--ink);background:var(--paper);box-shadow:7px 7px 0 var(--ink);overflow-x:auto}
-.action-flow-diagram svg{display:block;width:100%;min-width:760px;height:auto}
+.action-flow-diagram{margin:0 0 28px;padding:18px;border:5px solid var(--ink);background:var(--paper);box-shadow:7px 7px 0 var(--ink);overflow:hidden}
+.action-flow-diagram svg{display:block;width:100%;max-width:100%;min-width:0;height:auto}
 .action-route{fill:none;stroke:var(--route-color);stroke-width:14;stroke-linecap:round}
 .action-route-motion{fill:none;stroke:var(--paper);stroke-width:3;stroke-linecap:round;stroke-dasharray:3 17;animation:flow-dash 1.15s linear infinite,flow-pulse 1.8s ease-in-out infinite}
 .action-node-badge{fill:var(--route-color);stroke:var(--ink);stroke-width:7}
@@ -192,9 +197,7 @@
 .bridge-option b,.bridge-option small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bridge-option b{font:700 12px 'DM Mono';letter-spacing:.5px}
 .bridge-option small{margin-top:5px;color:#666;font:500 9px 'DM Mono'}
-.bridge-option-icon{display:grid;place-items:center;flex:none;width:34px;height:34px;border:3px solid var(--ink);border-radius:50%;background:var(--teal);font:700 10px 'DM Mono'}
-.target-option:nth-of-type(2) .bridge-option-icon{background:var(--pink)}
-.target-option:nth-of-type(3) .bridge-option-icon{background:var(--yellow)}
+.bridge-option-icon{display:grid;place-items:center;flex:none;width:34px;height:34px;border:3px solid var(--ink);border-radius:50%;background:var(--route-color,var(--teal));font:700 10px 'DM Mono'}
 .bridge-option .pill{margin-left:auto}
 .bridge-option.is-disabled{opacity:.45;cursor:not-allowed}
 .bridge-choice .note-empty{grid-column:1/-1;margin:0}
@@ -214,12 +217,22 @@
 .route-blue{--route-color:var(--blue)}
 .route-pink{--route-color:var(--pink)}
 .route-yellow{--route-color:var(--yellow)}
+.route-ink{--route-color:var(--ink);color:var(--cream)}
 .route-muted{--route-color:#aaa}
+.route-ethereum{--route-color:#a7a7a7}
+.route-arbitrum{--route-color:#00e340}
+.route-base{--route-color:#0000ff;color:#fff}
+.route-starknet{--route-color:#ec796b}
+.route-optimism{--route-color:#ff0421;color:#fff}
+.eth{background:#a7a7a7;color:var(--ink)}
+.dot[class*="route-"]{background:var(--route-color)}
+.route-label-base,.route-label-optimism{fill:#fff;color:#fff}
 .metro-route{fill:none;stroke:var(--route-color);stroke-width:14;stroke-linecap:round}
 .metro-station{fill:var(--paper);stroke:var(--ink);stroke-width:8}
 .metro-badge{fill:var(--route-color);stroke:var(--ink);stroke-width:7}
 .metro-badge-text,.metro-chain-name,.metro-chain-total,.metro-chain-detail,.metro-source-total,.metro-source-name,.metro-source-detail,.metro-interchange-label,.metro-empty{fill:var(--ink);font-family:'DM Mono',monospace}
 .metro-badge-text{font-size:14px;font-weight:800;text-anchor:middle;dominant-baseline:middle}
+.metro-badge-text.route-label-base,.metro-badge-text.route-label-optimism{fill:#fff}
 .metro-chain-total,.metro-source-total{font-size:21px;font-weight:800}
 .metro-currency{font-size:12px}
 .metro-chain-name,.metro-source-name{font-size:19px;font-weight:900}
@@ -231,12 +244,6 @@
 .metro-destination.has-pending .metro-station{fill:var(--yellow)}
 .metro-destination.has-value .metro-station{fill:var(--teal)}
 .metro-destination.is-empty .metro-station{fill:var(--paper)}
-.map-legend{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:28px;font:700 10px 'DM Mono';letter-spacing:.5px}
-.map-legend span{display:flex;align-items:center;gap:7px}
-.legend-dot{display:inline-block;width:13px;height:13px;border:3px solid var(--ink);border-radius:50%}
-.legend-dot.available{background:var(--teal)}
-.legend-dot.pending{background:var(--yellow)}
-.legend-dot.empty{background:var(--paper)}
 .home-actions{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px}
 .home-actions .primary{width:auto;padding:18px 26px}
 .home-actions .secondary-btn{flex:none;padding:18px 22px}
@@ -276,8 +283,9 @@
 .vault-frame .dot{width:11px;height:11px;border-width:2px;margin-right:7px}
 
 .vault-frame .app-shell{max-width:none;display:flex;flex-direction:column;gap:22px;padding:24px;align-items:stretch}
-.vault-primary-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(310px,1fr);grid-template-areas:"workspace balance" "workspace notes";gap:22px;align-items:start}
+.vault-primary-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(310px,1fr);grid-template-areas:"workspace rail";gap:22px;align-items:start}
 .vault-frame .workspace-main{grid-area:workspace;display:flex;flex-direction:column;gap:22px;min-width:0}
+.vault-rail{grid-area:rail;display:flex;flex-direction:column;gap:22px;min-width:0;align-self:start}
 .vault-frame .panel{border-width:2px;box-shadow:7px 7px 0 var(--ink)}
 
 /* Balance and the three primary routes lead the compact right rail. */
@@ -299,36 +307,70 @@
 .vault-frame .map-total strong{font-size:28px}
 .vault-frame .note-map{margin-bottom:18px;border-width:2px;box-shadow:none;padding:12px;background:#fbf7ed}
 .vault-frame .note-map svg{width:min(100%,760px);min-width:0;margin-inline:auto}
-.vault-frame .map-legend{margin:0 0 14px}
 .vault-frame .micro{margin-top:12px}
 
-/* Notes fills the second rail tile, with every route visible even at zero balance. */
-.vault-notes-tile{grid-area:notes;padding:20px 18px 18px;background:var(--paper);min-width:0}
-.vault-notes-tile .notes-heading{border:0;padding:0 0 14px;align-items:flex-start}
+/* Notes is a fixed viewport: switching routes never changes the rail height. */
+.vault-notes-tile{grid-area:notes;width:100%;height:540px;padding:0;background:var(--paper);min-width:0;overflow:hidden}
+.vault-notes-tile .notes-section{height:100%;min-height:0}
+.vault-notes-tile .notes-heading{border:0;border-bottom:2px solid var(--ink);padding:25px 16px 22px;align-items:flex-start;margin:0}
 .vault-notes-tile .notes-heading h2{font-size:21px}
 .vault-notes-tile .notes-heading p{margin:7px 0 0;color:#555;font:500 11px 'DM Mono'}
-.notes-heading-actions{display:flex;align-items:center;justify-content:flex-start;gap:12px;flex-wrap:wrap}
+.vault-notes-tile .notes-heading>div:first-child{width:100%;padding:0 14px}
+.notes-heading-actions{display:flex;align-items:center;justify-content:space-between;width:100%;gap:12px;padding-left:14px;flex-wrap:nowrap}
 .vault-notes-tile .notes-heading{flex-direction:column}
 .vault-notes-tile .unlock{border:2px solid var(--ink);box-shadow:3px 3px 0 var(--ink);background:var(--yellow);padding:9px 15px;font:700 10px 'DM Mono';letter-spacing:1px}
 .vault-notes-tile .route-scan{margin:0 0 16px;border-width:2px;background:var(--teal);box-shadow:5px 5px 0 var(--ink)}
 .vault-notes-tile .route-scan-head{border-bottom-width:2px;background:transparent;padding:11px 13px}
 .vault-notes-tile .route-scan-list{display:grid;grid-template-columns:1fr;background:var(--paper)}
 .vault-notes-tile .route-scan-step{border:0;border-right:1px solid var(--ink);border-bottom:1px solid var(--ink)}
-.route-summary-grid{display:grid;grid-template-columns:1fr;gap:8px}
-.route-summary{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--ink);padding:10px;background:var(--paper)}
-.route-summary span{min-width:0}
+.notes-index .route-scan{flex:none;max-height:190px;overflow-y:auto}
+.notes-index .route-summary-grid{flex:1;min-height:0;overflow-y:auto;padding:18px 16px 22px}
+.route-summary-grid{display:flex;flex-direction:column;gap:12px;background:var(--cream)}
+.route-summary{appearance:none;width:100%;min-width:0;display:grid;grid-template-columns:38px minmax(0,1fr) 16px;align-items:center;gap:11px;border:2px solid var(--ink);box-shadow:5px 5px 0 var(--ink);padding:9px 10px;background:var(--paper);color:var(--ink);text-align:left}
+.route-summary:hover{background:#fbf7ed;transform:translate(-1px,-1px);box-shadow:6px 6px 0 var(--ink)}
+.route-summary:focus-visible{outline:4px solid var(--blue);outline-offset:2px}
+.route-summary.is-pending{opacity:.65}
+.route-summary.is-scanning{background:#fff7cf}
+.route-summary.is-complete{background:#effcf8}
+.route-summary.is-skipped{opacity:.65;background:#f2eee5}
+.route-summary.is-error{background:#ffe0e0}
+.route-summary-logo{display:grid;place-items:center;width:36px;height:36px;border:2px solid var(--ink);background:var(--route-color);font:800 11px 'DM Mono'}
+.route-summary-copy{min-width:0}
 .route-summary b,.route-summary small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.route-summary b{font:700 10px 'DM Mono'}
-.route-summary small{margin-top:4px;color:#666;font:9px 'DM Mono'}
-.route-summary>strong{flex:none;font:700 9px 'DM Mono'}
-.note-detail-heading{margin-top:18px}
+.route-summary b{font:700 13px 'Space Grotesk',sans-serif}
+.route-summary small{margin-top:6px;color:#777;font:10px 'DM Mono'}
+.route-summary-arrow{font:800 25px/1 'Space Grotesk';text-align:right}
+
+.notes-detail{gap:16px}
+.vault-notes-tile .notes-detail{padding:20px 18px 18px}
+.notes-detail-head{flex:none;border-bottom:2px solid var(--ink);padding:0 2px 18px}
+.notes-back{border:2px solid var(--ink);box-shadow:4px 4px 0 var(--ink);background:var(--paper);padding:9px 12px;font:700 10px 'DM Mono';letter-spacing:1px}
+.notes-back:hover{background:var(--yellow)}
+.notes-detail-title{margin-top:24px}
+.notes-detail-title>.eyebrow{color:#777}
+.notes-detail-title>div{display:flex;align-items:flex-end;justify-content:space-between;gap:15px;margin-top:6px}
+.notes-detail-title h2{margin:0;font-size:29px;line-height:1}
+.notes-detail-title strong{font:700 11px 'DM Mono';letter-spacing:1px;white-space:nowrap}
+.notes-detail-list{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;padding:0 8px 10px 2px;scrollbar-color:var(--ink) var(--cream);scrollbar-width:thin}
+.notes-detail-list::-webkit-scrollbar{width:9px}
+.notes-detail-list::-webkit-scrollbar-track{background:var(--cream);border-left:2px solid var(--ink)}
+.notes-detail-list::-webkit-scrollbar-thumb{background:var(--ink)}
+.notes-detail .vnote{align-items:flex-start;min-height:112px;margin-top:13px;padding:16px 14px;box-shadow:5px 5px 0 var(--ink)}
+.notes-detail .vnote:first-child{margin-top:2px}
+.notes-detail .vnote>.note-icon{display:none}
+.notes-detail .vnote strong{font-size:25px;letter-spacing:-.7px}
+.notes-detail .vnote small{margin-top:8px;font-size:10px}
+.notes-detail .vnote .pill{align-self:flex-start;background:var(--ink);color:var(--paper);border-width:2px;padding:8px 9px;font-size:9px}
+.notes-detail .note-empty{margin:2px 0 0}
 .vault-notes-tile .group-heading{border-bottom-width:2px}
 .vault-notes-tile .vnote{border-width:2px}
 
 .transit-identity{margin-top:22px;padding-top:22px;border-top:2px solid var(--ink)}
 .transit-identity .card-heading h2{font-size:20px}
-.transit-identity .identity-copy{max-width:760px;margin:8px 0 18px;color:#555;line-height:1.5}
+.transit-identity .identity-copy{max-width:760px;color:#555;line-height:1.5}
 .transit-identity .online{border-width:2px;padding:8px 11px;font-size:9px}
+.transit-identity .identity-connect{cursor:pointer;font:700 9px 'DM Mono';letter-spacing:1px;background:var(--yellow)}
+.transit-identity .identity-connect:hover{background:var(--teal)}
 .shielded-key-list{display:flex;flex-direction:column;gap:10px}
 .shielded-key-row{display:grid;grid-template-columns:112px minmax(0,1fr) 58px;gap:12px;align-items:center;min-height:48px;border:2px solid var(--ink);padding:8px 10px;background:#fbf7ed}
 .shielded-key-row>span{color:#666;font:500 9px 'DM Mono';letter-spacing:1.5px}
@@ -338,6 +380,7 @@
 .transit-identity-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:18px;padding-top:18px;border-top:2px solid var(--ink)}
 .transit-identity-actions .secondary-btn{border-width:2px;box-shadow:4px 4px 0 var(--ink);padding:13px}
 .transit-identity-actions .secondary-btn:disabled{box-shadow:none;border-style:dashed;background:transparent;color:#888;cursor:not-allowed}
+.transit-identity .identity-note{margin:8px 0 18px;font:500 11px 'DM Mono'}
 
 /* Ragequit is intentionally visually separate from ordinary private flows. */
 .ragequit-panel{border-color:#8f2017;background:#fff8f0}
@@ -363,12 +406,13 @@
 @media(max-width:1050px){
   .vault-frame .topbar{height:auto;padding:18px 22px}
   .vault-frame .topbar .wallet{margin-left:auto}
-  .vault-primary-grid{grid-template-columns:1fr;grid-template-areas:"balance" "workspace" "notes"}
+  .vault-primary-grid{grid-template-columns:1fr;grid-template-areas:"rail" "workspace"}
   .vault-summary .vault-actions{max-width:none}
-  .vault-notes-tile{padding:24px 22px 22px}
-  .vault-notes-tile .notes-heading{flex-direction:row}
-  .notes-heading-actions{justify-content:flex-end}
-  .route-summary-grid,.vault-notes-tile .route-scan-list{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .vault-notes-tile{padding:0}
+  .vault-notes-tile .notes-heading{flex-direction:column}
+  .notes-heading-actions{justify-content:space-between}
+  .vault-notes-tile{height:540px}
+  .vault-notes-tile .route-scan-list{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media(max-width:650px){
   .vault-frame{width:calc(100% - 24px);margin-top:12px;margin-bottom:42px;box-shadow:6px 6px 0 var(--ink)}
@@ -376,11 +420,12 @@
   .vault-frame .brand{font-size:22px}
   .vault-frame .app-shell{gap:16px;padding:14px}
   .vault-primary-grid{gap:16px}
-  .vault-summary,.vault-notes-tile,.vault-frame .home-panel{padding:18px}
+  .vault-summary,.vault-frame .home-panel{padding:18px}
+  .vault-notes-tile{padding:0}
   .vault-summary .vault-actions{grid-template-columns:1fr}
   .vault-summary .vault-actions .primary{grid-column:auto}
-  .route-summary-grid,.vault-notes-tile .route-scan-list{grid-template-columns:1fr}
-  .notes-heading-actions{justify-content:flex-start}
+  .vault-notes-tile .route-scan-list{grid-template-columns:1fr}
+  .notes-heading-actions{justify-content:space-between}
   .vault-notes-tile .notes-heading{flex-direction:column;gap:14px}
   .vault-frame .note-map svg{width:680px;min-width:680px}
   .shielded-key-row{grid-template-columns:1fr 54px;gap:7px}
@@ -389,3 +434,29 @@
   .ragequit-account{grid-template-columns:1fr}
   .vault-frame+footer{width:calc(100% - 24px);margin-top:-22px}
 }
+
+/* --- Tier-1 QoL affordances: explorer links, copy chips, deposit MAX --- */
+.tx-link{display:inline-block;align-self:flex-start;margin-top:12px;border:3px solid var(--ink);background:var(--paper);color:var(--ink);text-decoration:none;padding:9px 12px;font:700 11px 'DM Mono';letter-spacing:1.5px;box-shadow:3px 3px 0 var(--ink)}
+.tx-link:hover{background:var(--yellow)}
+.tx-link:focus-visible{outline:4px solid var(--blue);outline-offset:2px}
+.copy-chip{display:inline-block;margin-top:7px;border:2px solid var(--ink);background:var(--paper);color:var(--ink);padding:5px 7px;font:700 8px 'DM Mono';letter-spacing:1px}
+.copy-chip:hover{background:var(--yellow)}
+.copy-chip:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+.max-chip{margin-left:auto;margin-right:14px;border:4px solid var(--ink);background:var(--teal);color:var(--ink);box-shadow:4px 4px 0 var(--ink);padding:13px 16px;font:700 13px 'DM Mono';letter-spacing:1px}
+.max-chip:hover{background:var(--yellow)}
+.max-chip:disabled{opacity:.5;cursor:wait}
+
+/* --- Tier-2 QoL: inline field problems, proving warning, activity log --- */
+.field-problem{display:block;margin-top:9px;min-height:15px;color:var(--orange);font:700 11px 'DM Mono';letter-spacing:.5px;line-height:1.35;text-transform:none}
+.field-problem:empty{min-height:0}
+.proving-notice{margin-top:26px}
+.notes-route-rescan{flex:none;align-self:flex-start;white-space:nowrap}
+.notes-detail-head{align-items:flex-start}
+.activity-list{display:flex;flex-direction:column;gap:2px}
+.activity-row{align-items:flex-start;margin-top:12px;padding:16px 18px;box-shadow:4px 4px 0 var(--ink)}
+.activity-row>div{display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+.activity-row strong{font-size:19px;letter-spacing:-.3px}
+.activity-row small{white-space:normal;overflow:visible;word-break:break-word}
+.activity-row .tx-link{margin-top:9px;padding:7px 10px;font-size:9px;box-shadow:2px 2px 0 var(--ink)}
+.activity-row.is-public{background:#fdece7}
+.activity-age{flex:none;align-self:center;border:2px solid var(--ink);background:var(--cream);padding:7px 9px;font:700 9px 'DM Mono';letter-spacing:1px;white-space:nowrap}

@@ -41,9 +41,12 @@ l1Router.get("/config", async (_req, res) => {
     minDepositWei: process.env.MIN_DEPOSIT_WEI ?? "0",
     maxDepositWei: ((1n << 128n) - 1n).toString(),
     vettingFeeBps: Number(process.env.VETTING_FEE_BPS ?? 0),
+    explorerUrl: l1.explorerUrl,
     // The EVM L2 destinations the client should scan and offer, each with its route
     // key. Starknet is advertised separately via /api/starknet/config.
-    l2Chains: getEvmL2s().map((c) => ({ key: c.key, chainId: c.chainId, chainName: c.chainName })),
+    l2Chains: getEvmL2s().map((c) => ({
+      key: c.key, chainId: c.chainId, chainName: c.chainName, explorerUrl: c.explorerUrl,
+    })),
   };
 
   if (!config.rpcUrl || !l1.entrypointAddress || !config.asset) return res.json(config);

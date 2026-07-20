@@ -56,6 +56,7 @@ starknetRouter.get("/config", async (_req, res) => {
     ourL1Pool: getL1().poolAddress || null,
     chainId: config.chainId,
     chainName: config.chainName,
+    explorerUrl: config.explorerUrl,
     poolAddress: config.poolAddress,
     assetAddress: config.assetAddress,
     relayerAddress: signer.relayerAddress ?? null,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { renderVaultIdentityControls } from "./vault-identity.js";
+import { cachedPublicationStatus, renderVaultIdentityControls, storePublicationStatus } from "./vault-identity.js";
 
 const shielded = {
   B: [12345678901234567890n, 22345678901234567890n],
@@ -15,11 +15,31 @@ test("renders public shielded keys, recovery action, and publication rationale",
   assert.match(html, /SPENDING KEY/);
   assert.match(html, /VIEWING KEY/);
   assert.match(html, /id="reveal-mnemonic"/);
-  assert.match(html, /senders can resolve your connected wallet/i);
+  assert.match(html, /shielded address is published/i);
   assert.match(html, /private keys and recovery phrase stay local/i);
   assert.doesNotMatch(html, /id="register-keys"/);
   assert.match(html, /<code>12345678…567890 · 22345678…567890<\/code>/);
   assert.match(html, /data-copy-shielded="12345678901234567890, 22345678901234567890"/);
+});
+
+test("places the publication explanation below the heading and makes connect actionable", () => {
+  const html = renderVaultIdentityControls({ shielded, account: "", registered: null, busy: false });
+  assert.match(html, /data-connect-wallet/);
+  assert.ok(html.indexOf("identity-note") < html.indexOf("shielded-key-list"));
+});
+
+test("stores publication status for the exact wallet and shielded identity", () => {
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  };
+
+  storePublicationStatus(storage, "0xABCD", shielded, true);
+  assert.equal(cachedPublicationStatus(storage, "0xabcd", shielded), true);
+  assert.equal(cachedPublicationStatus(storage, "", shielded), true);
+  assert.equal(cachedPublicationStatus(storage, "0xeeee", shielded), false);
+  assert.equal(cachedPublicationStatus(storage, "0xabcd", { ...shielded, B: [1n, 2n] }), false);
 });
 
 test("renders publish action only for keys known to be unpublished", () => {
