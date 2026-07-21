@@ -28,6 +28,7 @@
     "verify:withdrawL1": "npx circomkit verify withdrawL1 default",
     "verify:commitmentL1": "npx circomkit verify commitmentL1 default",
     "gencontract:withdraw": "sh ./scripts/gen-verifier.sh withdrawL1 WithdrawalVerifier",
+    "gencontract:withdrawL2": "sh ./scripts/gen-verifier.sh withdrawL2 L2WithdrawalVerifier",
     "gencontract:commitment": "sh ./scripts/gen-verifier.sh commitmentL1 CommitmentVerifier"
   },
   "dependencies": {

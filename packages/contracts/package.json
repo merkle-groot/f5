@@ -22,7 +22,7 @@
     "deploy:l2:base-sepolia": "bash -c 'source .env && L2_TARGET=BASE_SEPOLIA forge script script/DeployL2.s.sol:DeployL2Testnet --account DEPLOYER --rpc-url $BASE_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'",
     "configure:bridge:base-sepolia": "bash -c 'source .env && L2_TARGET=BASE_SEPOLIA forge script script/ConfigureOpStackBridge.s.sol:ConfigureOpStackBridge --account DEPLOYER --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'",
     "configure:bridge:starknet-sepolia": "bash -c 'source .env && L2_TARGET=STARKNET_SEPOLIA forge script script/ConfigureStarknetBridge.s.sol:ConfigureStarknetBridge --account DEPLOYER --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'",
-    "deploy:l2:arb-sepolia": "bash -c 'source .env && L2_TARGET=ARB_SEPOLIA forge script script/DeployL2Arbitrum.s.sol:DeployL2Arbitrum --account DEPLOYER --rpc-url $ARB_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'",
+    "deploy:l2:arb-sepolia": "bash -c 'source .env && L2_TARGET=ARB_SEPOLIA ARB_SEPOLIA_L2_HEAD_BLOCK=$(cast block-number --rpc-url $ARB_SEPOLIA_RPC) forge script script/DeployL2Arbitrum.s.sol:DeployL2Arbitrum --account DEPLOYER --rpc-url $ARB_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'",
     "configure:bridge:arb-sepolia": "bash -c 'source .env && L2_TARGET=ARB_SEPOLIA forge script script/ConfigureArbitrumBridge.s.sol:ConfigureArbitrumBridge --account DEPLOYER --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'",
     "lint:check": "yarn lint:sol && forge fmt --check",
     "lint:fix": "sort-package-json && forge fmt && yarn lint:sol --fix",
@@ -38,7 +38,9 @@
     "updateroot:sepolia": "bash -c 'source .env && forge script script/Entrypoint.s.sol:UpdateRoot --ffi --account DEPLOYER --sender $POSTMAN_ADDRESS --rpc-url $ETHEREUM_SEPOLIA_RPC -vv $0'",
     "update:l1:root:sepolia": "bash -c 'source .env && forge script script/UpdateL1.s.sol:UpdateL1Root --account $SEPOLIA_POSTMAN --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $POSTMAN_ADDRESS --slow -vv $0'",
     "update:l1:pool:sepolia": "bash -c 'source .env && forge script script/UpdateL1.s.sol:UpdateL1PoolConfiguration --account DEPLOYER --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $OWNER_ADDRESS --slow -vv $0'",
-    "bridge:funds:op-sepolia": "bash -c 'source .env && L2_TARGET=OP_SEPOLIA forge script script/BridgeFunds.s.sol:BridgeFundsToOpStack --account DEPLOYER --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $DEPLOYER_ADDRESS --slow -vv $0'"
+    "bridge:funds:op-sepolia": "bash -c 'set -a; . .env; . ../relayer/.env; set +a; L2_TARGET=OP_SEPOLIA BRIDGE_SENDER_ADDRESS=$OP_SEPOLIA_RELAYER_ADDRESS forge script script/BridgeFunds.s.sol:BridgeFundsToOpStack --private-key $DESTINATION_OP_PRIVATE_KEY --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $OP_SEPOLIA_RELAYER_ADDRESS --slow -vv $0'",
+    "bridge:funds:base-sepolia": "bash -c 'set -a; . .env; . ../relayer/.env; set +a; L2_TARGET=BASE_SEPOLIA BRIDGE_SENDER_ADDRESS=$BASE_SEPOLIA_RELAYER_ADDRESS forge script script/BridgeFunds.s.sol:BridgeFundsToOpStack --private-key $DESTINATION_BASE_PRIVATE_KEY --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $BASE_SEPOLIA_RELAYER_ADDRESS --slow -vv $0'",
+    "bridge:funds:arb-sepolia": "bash -c 'set -a; . .env; . ../relayer/.env; set +a; L2_TARGET=ARB_SEPOLIA BRIDGE_SENDER_ADDRESS=$ARB_SEPOLIA_RELAYER_ADDRESS forge script script/BridgeFunds.s.sol:BridgeFundsToArbitrum --private-key $DESTINATION_ARB_PRIVATE_KEY --rpc-url $ETHEREUM_SEPOLIA_RPC --sender $ARB_SEPOLIA_RELAYER_ADDRESS --slow -vv $0'"
   },
   "lint-staged": {
     "*.{js,css,md,ts,sol}": "forge fmt",

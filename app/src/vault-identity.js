@@ -6,11 +6,6 @@ function escapeHtml(value) {
   })[character]);
 }
 
-function short(value) {
-  const text = String(value);
-  return text.length > 16 ? `${text.slice(0, 8)}…${text.slice(-6)}` : text;
-}
-
 const PUBLISHED_ADDRESSES_KEY = "f5-published-addresses-v1";
 
 function identityFingerprint(shielded) {
@@ -35,7 +30,10 @@ function identityFingerprint(shielded) {
  * than useless: the only tooling that would accept a string of that shape is a
  * conformant ERC-5564 wallet, which would read these Baby Jubjub limbs as
  * secp256k1 and derive a garbage address. The address below is the handle.
- * Anyone who genuinely needs raw key material has the per-key COPY buttons.
+ *
+ * The raw B and V limbs are not printed either. They are derived from the
+ * recovery phrase and resolved from the registry by senders; a user who reads
+ * them off this card has nothing to do with them.
  */
 
 export function cachedPublicationStatus(storage, account, shielded) {
@@ -63,64 +61,89 @@ export function storePublicationStatus(storage, account, shielded, published) {
 }
 
 /**
- * The shielded-address panel, styled as a ticket-stub credential card: a
- * perforated left stub carrying the identicon fingerprint, and the details
- * — holder, meta-address, both keys — on the right.
+ * What the publish button says while it works.
+ *
+ * The two waits are told apart on purpose: "signing" is waiting on the user and
+ * they have to go look at their wallet, "confirming" is waiting on the chain and
+ * they should sit still. A single spinner would flatten them into one shrug.
  */
-export function renderVaultIdentityControls({ shielded, account, registered, busy }) {
-  const { B, V } = shielded;
-  const status = registered === true ? "PUBLISHED" : !account ? "CONNECT WALLET" : registered === false ? "NOT PUBLISHED" : "CHECKING";
-  const statusControl = !account && registered !== true
+function publishLabel(phase) {
+  if (phase === "signing") return `<span class="spinner" aria-hidden="true"></span>CONFIRM IN YOUR WALLET…`;
+  if (phase === "confirming") return `<span class="spinner" aria-hidden="true"></span>PUBLISHING ON L1…`;
+  return "PUBLISH SHIELDED ADDRESS";
+}
+
+/**
+ * The shielded-address panel, styled as a ticket-stub credential card: a
+ * perforated left stub carrying the identicon fingerprint, and the address the
+ * user hands out — or the action that makes it resolvable — on the right.
+ */
+export function renderVaultIdentityControls({ shielded, account, registered, busy, publishPhase = null }) {
+  // Publication is per wallet, so with none connected the badge asks for one
+  // rather than reporting a cached fingerprint as this wallet's status.
+  const status = !account ? "CONNECT WALLET" : registered === true ? "PUBLISHED" : registered === false ? "NOT PUBLISHED" : "CHECKING";
+  const statusControl = !account
     ? `<button type="button" class="online identity-connect" data-connect-wallet><i class="dot teal-dot"></i> ${status}</button>`
     : `<span class="online"><i class="dot teal-dot"></i> ${status}</span>`;
-  const spendingKey = `${B[0]}, ${B[1]}`;
-  const viewingKey = `${V[0]}, ${V[1]}`;
-  const publishAction = registered === false
-    ? `<button id="register-keys" class="secondary-btn" ${busy ? "disabled" : ""}>PUBLISH SHIELDED ADDRESS</button>`
-    : "";
+  const holder = escapeHtml(account);
+  /*
+   * The address slot follows what a sender could actually do with it.
+   *
+   * Until the keys are in the registry, `resolveRecipient` finds nothing at
+   * this address — handing it out would send people to a lookup that fails.
+   * So the unpublished card offers the fix in that spot instead of a handle
+   * that does not work yet.
+   *
+   * The address branch also requires a connected account, not just
+   * `registered`: `cachedPublicationStatus` answers true for a known-published
+   * fingerprint with no wallet connected, which rendered an empty <code> chip
+   * beside a PUBLISHED badge — the card claiming to show an address it did not
+   * have.
+   */
+  const holderSlot = registered === true && account
+    ? `${publishPhase === "published" ? `<p class="publish-done"><b>✓ PUBLISHED</b> Your address resolves now — people can send to it.</p>` : ""}
+      <div class="holder-row${publishPhase === "published" ? " just-published" : ""}">
+        <code class="holder-address">${holder}</code>
+        <button type="button" class="copy-meta-address" data-copy-shielded="${escapeHtml(account)}" data-copy-label="Address">COPY ADDRESS</button>
+      </div>`
+    : registered === false && account
+      ? `<button id="register-keys" type="button" class="holder-publish ${publishPhase ? "is-working" : ""}" ${busy ? "disabled" : ""}>${publishLabel(publishPhase)}</button>`
+      : `<div class="holder-row is-empty">
+        <span class="holder-address holder-empty">${account ? "Checking the registry…" : "No wallet connected — connect one to see your address"}</span>
+        <button type="button" class="copy-meta-address" disabled>COPY ADDRESS</button>
+      </div>`;
+  const holderLine = registered === true && account
+    ? "Give people this address. They look you up with it, and the notes they send arrive in this vault."
+    : registered === false && account
+      ? "Publish once, and this address becomes the handle people send to. It costs one L1 transaction and reveals only your public keys."
+      : "Once a wallet is connected and published, its address becomes the handle people send to.";
   const identityNote = registered === true
     ? "Your shielded address is published. Senders can resolve this wallet and deliver shielded notes directly to your vault. Your private keys and recovery phrase stay local."
     : "Publish your public shielded keys so senders can resolve your connected wallet and deliver shielded notes to this vault. Your private keys and recovery phrase stay local and are never published.";
-  const holder = account ? escapeHtml(account) : "not connected";
 
   return `
     <section class="transit-identity credential-card" aria-labelledby="shielded-address-title">
       <div class="card-heading credential-heading">
         <h2 id="shielded-address-title">SHIELDED ADDRESS</h2>
-        <span class="registry-badge">ERC-6538 REGISTERED</span>
+        <span class="registry-badge">ERC-6538 COMPLIANT</span>
         ${statusControl}
       </div>
       <p class="identity-copy identity-note">${identityNote}</p>
       <div class="credential-body">
         <div class="credential-stub">
           <span class="eyebrow">FINGERPRINT</span>
-          ${renderIdenticon(shielded, { px: 120, label: "Your shielded address fingerprint" })}
+          <span class="stub-identicon">${renderIdenticon(shielded, { px: 76, label: "Your shielded address fingerprint" })}</span>
           <p class="fingerprint-caption">check this matches on the recipient's device</p>
         </div>
         <div class="credential-perforation" aria-hidden="true"></div>
         <div class="credential-details">
           <div class="credential-field">
-            <span class="eyebrow">HOLDER · YOUR ADDRESS · SENDERS RESOLVE THIS</span>
-            <code>${holder}</code>
+            <p class="holder-line">${holderLine}</p>
+            ${holderSlot}
           </div>
-          <div class="shielded-key-list">
-            <div class="shielded-key-row">
-              <span>SPENDING KEY</span>
-              <div class="key-value"><code>${short(B[0])} · ${short(B[1])}</code><small>64 bytes · Baby Jubjub</small></div>
-              <button type="button" data-copy-shielded="${escapeHtml(spendingKey)}" data-copy-label="Spending key">COPY</button>
-            </div>
-            <div class="shielded-key-row">
-              <span>VIEWING KEY</span>
-              <div class="key-value"><code>${short(V[0])} · ${short(V[1])}</code><small>64 bytes · Baby Jubjub</small></div>
-              <button type="button" data-copy-shielded="${escapeHtml(viewingKey)}" data-copy-label="Viewing key">COPY</button>
-            </div>
-          </div>
-          ${account
-            ? `<button type="button" class="secondary-btn copy-meta-address" data-copy-shielded="${escapeHtml(account)}" data-copy-label="Address">COPY ADDRESS</button>`
-            : `<button type="button" class="secondary-btn copy-meta-address" disabled>COPY ADDRESS</button>`}
         </div>
       </div>
-      <div class="transit-identity-actions">${publishAction}<button id="reveal-mnemonic" class="secondary-btn">SHOW RECOVERY PHRASE</button></div>
+      <div class="transit-identity-actions"><button id="reveal-mnemonic" class="secondary-btn">SHOW RECOVERY PHRASE</button></div>
       <div class="credential-footer">
         <span>REGISTRY · 0x6538…6538</span>
         <span>SCHEME · CUTOUT-BJJ</span>

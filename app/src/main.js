@@ -3,7 +3,8 @@ import { cachedPublicationStatus, renderVaultIdentityControls, storePublicationS
 import { renderIdenticon } from "./identicon.js";
 import { noteName, renderNoteSigil } from "./note-mark.js";
 import { anchorRect, showCopiedSticker } from "./copy-sticker.js";
-import { createPublicClient, createWalletClient, custom, decodeAbiParameters, formatEther, http, isAddress, parseEther, parseEventLogs } from "viem";
+import { createWallet } from "./wallet.js";
+import { createPublicClient, decodeAbiParameters, formatEther, http, isAddress, parseEther, parseEventLogs } from "viem";
 import {
   IDENTITY_UNWRAP_MESSAGE,
   createMnemonic,
@@ -24,7 +25,7 @@ import {
 import { preservedNotes, runSequentialScan } from "./scan-flow.js";
 import { bridgedValueAfterFee, clampWithdrawAmount, relayFeeBpsFromQuote, remainingNoteValue, validateWithdrawAmount } from "./bridge-flow.js";
 import { MAX_DECIMALS, amountAfterEdit, isAcceptableAmount, truncateAmount } from "./amount-input.js";
-import { atLeastCohort, betterNearbyAmount, exactCohort, trimBenefit } from "./anonymity-set.js";
+import { atLeastCohort, trimBenefit } from "./anonymity-set.js";
 import { SPENT_STATUS, largestFirst, matchingNotes, newestFirst, spentLast } from "./note-order.js";
 import { nextWithdrawalIndex, recoverChangeNotes } from "./change-notes.js";
 import { errorHint } from "./error-hints.js";
@@ -107,9 +108,19 @@ const poolAbi = [
   },
 ];
 
+/**
+ * The wallet connection, created once `/api/config` has named the pool's chain.
+ * Null until then — `ensureWallet` is the only way anything below reaches it.
+ */
+let wallets = null;
+/** The in-flight `createWallet`, so concurrent callers share one config. */
+let walletSetup = null;
+
 const state = {
   /** Which flow occupies the left workspace: "home" | "deposit" | "send" | "receive" | "ragequit". */
   view: "home",
+  /** Open only while the user is choosing between several installed wallets. */
+  walletPicker: false,
   // Empty means "unset" — depositView falls back to the pool's minimum deposit
   // once config has loaded, rather than baking in a guess here.
   amount: "",
@@ -166,6 +177,13 @@ const state = {
   /** { [cDest]: { value, chain, recipient, hash, at } } — withdrawn L2 notes. */
   withdrawn: {},
   registered: null,
+  /**
+   * How far publication has got: "signing" while the wallet prompt is open,
+   * "confirming" once the transaction is submitted, "published" for the beat
+   * after it lands, null when idle. Same reason as `deposit.phase` — the wait
+   * on the user and the wait on the chain need different words.
+   */
+  publishPhase: null,
 
   send: { noteCommitment: "", destinationChainId: "", destinationChosen: false, recipientMode: "self", recipientKey: "", resolved: null, draft: null, amount: "" },
   ragequit: { noteCommitment: "", confirmedCommitment: "", eligibility: {}, checkedFor: null, balance: null, proof: null, response: null },
@@ -179,7 +197,7 @@ const state = {
 const app = document.querySelector("#app");
 const sdk = () => import("@0xbow/privacy-pools-core-sdk");
 const icons = {
-  mark: `<img class="brand-eye" src="/f5-eye.svg" alt="" aria-hidden="true">`,
+  mark: `<img class="brand-eye" src="/f5-logo.png" alt="" aria-hidden="true">`,
   eth: `<span class="eth">Ξ</span>`,
 };
 
@@ -251,17 +269,101 @@ function navigateVault(view, { replace = false, capture = true, clearMessages = 
   render();
 }
 
+/**
+ * The list of installed wallets, shown while the user is choosing.
+ *
+ * Names and icons come from the wallets themselves, so they are escaped rather
+ * than interpolated raw — an extension is not a trusted source of markup. The
+ * icon is optional: not every wallet announces one.
+ */
+function walletPicker() {
+  const connected = wallets?.connection().connector;
+  const options = (wallets?.available() ?? []).map(({ uid, name, icon }) => `
+    <button type="button" class="wallet-option" data-wallet-uid="${escapeHtml(uid)}">
+      ${icon ? `<img src="${escapeHtml(icon)}" alt="" width="26" height="26" />` : `<i class="wallet-blank"></i>`}
+      <span>${escapeHtml(name)}</span>
+      ${connected?.uid === uid ? `<i class="wallet-last">ON</i>` : ""}
+    </button>`).join("");
+  return `
+    <div class="wallet-picker">
+      <p class="wallet-picker-title">${options ? "Choose a wallet" : "No wallet found"}</p>
+      ${options || `<p class="wallet-picker-empty">Install an Ethereum wallet extension, then reload.</p>`}
+      ${state.account ? `<button type="button" class="wallet-picker-cancel" data-wallet-disconnect>Disconnect</button>` : ""}
+      <button type="button" class="wallet-picker-cancel" data-wallet-cancel>Cancel</button>
+    </div>`;
+}
+
+/**
+ * Chains a wallet is likely to be sitting on by mistake.
+ *
+ * Only for naming what we find: the pool's own chain comes from the server, and
+ * anything unlisted still reports its number, which is enough to act on.
+ */
+const KNOWN_CHAINS = {
+  1: "Ethereum",
+  10: "OP Mainnet",
+  56: "BNB Chain",
+  137: "Polygon",
+  8453: "Base",
+  42161: "Arbitrum One",
+  11155111: "Sepolia",
+  11155420: "OP Sepolia",
+  84532: "Base Sepolia",
+  421614: "Arbitrum Sepolia",
+};
+
+function chainName(id) {
+  if (id === state.config?.chainId) return state.config.chainName;
+  return KNOWN_CHAINS[id] ?? `Chain ${id}`;
+}
+
+/**
+ * The network the wallet is actually on — not the one the pool wants.
+ *
+ * Showing the pool's chain unconditionally read as a claim about the wallet, so
+ * a user on mainnet saw "Sepolia" and had no way to know they were adrift. When
+ * the two disagree the button says so and becomes the fix: clicking it asks the
+ * wallet to switch.
+ */
+function networkButton() {
+  const pool = state.config?.chainName ?? "Ethereum";
+  // A span, not a disabled button: there is nothing to click when the network is
+  // right, and `disabled` greys the label out as though the value were stale.
+  if (!state.account || state.walletChainId === null) {
+    return `<span class="network network-static"><i class="dot route-ethereum"></i> ${escapeHtml(pool)}</span>`;
+  }
+  if (!walletOnWrongChain()) {
+    return `<span class="network network-static"><i class="dot route-ethereum"></i> ${escapeHtml(chainName(state.walletChainId))}</span>`;
+  }
+  return `<button id="network-switch" class="network network-wrong" title="Wallet is on the wrong network — click to switch to ${escapeHtml(pool)}" ${state.busy ? "disabled" : ""}>
+    <i class="dot wrong-dot"></i> ${escapeHtml(chainName(state.walletChainId))}<i class="network-flag">WRONG</i>
+  </button>`;
+}
+
+/** The connected wallet's icon, so a multi-wallet user can see which one is live. */
+function walletBadge() {
+  const icon = state.account ? wallets?.connection().connector?.icon : null;
+  if (!icon) return "";
+  return `<img class="wallet-badge" src="${escapeHtml(icon)}" alt="" width="22" height="22" />`;
+}
+
 /** Chrome shared by both the onboarding and unlocked states. */
+
 function topbar() {
   const acct = state.account ? `${state.account.slice(0, 6)}…${state.account.slice(-4)}` : "CONNECT";
   return `
     <header class="topbar">
       <a class="brand" href="/vault" data-view="home"><span class="brand-mark">${icons.mark}</span><span>F5</span><span class="tag pink">VAULT</span></a>
       <div class="wallet">
-        <button class="network"><i class="dot route-ethereum"></i> ${state.config?.chainName ?? "Ethereum"}</button>
-        <button id="connect" class="account">${acct}</button>
-        ${state.identity ? `<span class="topbar-identicon">${renderIdenticon(state.identity.shielded, { px: 44, label: "Loaded shielded identity" })}</span>
-        <button id="lock" class="account">LOCK</button>` : ""}
+        <div class="wallet-combo account-slot">
+          <button id="connect" class="account">${walletBadge()}${acct}</button>
+          ${networkButton()}
+          ${state.walletPicker ? walletPicker() : ""}
+        </div>
+        ${state.identity ? `<button id="lock" class="account identity-lock" title="Lock the vault">
+          <span class="identity-lock-mark">${renderIdenticon(state.identity.shielded, { px: 44, label: "Loaded shielded identity" })}</span>
+          <span>LOCK</span>
+        </button>` : ""}
       </div>
     </header>`;
 }
@@ -327,17 +429,18 @@ function bind() {
       void guard(refreshRagequitEligibility, "ragequit-check");
     }
   }));
-  on("#connect", "click", () => guard(connectWallet));
+  on("#connect", "click", () => guard(state.account ? openWalletPicker : connectWallet));
   on("[data-connect-wallet]", "click", () => guard(connectWallet));
+  app.querySelectorAll("[data-wallet-uid]").forEach((button) => button.addEventListener("click", () => {
+    void guard(() => connectToWallet(button.dataset.walletUid));
+  }));
+  on("[data-wallet-disconnect]", "click", () => guard(disconnectWallet));
+  on("[data-wallet-cancel]", "click", () => { state.walletPicker = false; render(); });
   on("#lock", "click", lockVault);
   on("#action", "click", submitFlow);
   on("#dismiss-error", "click", () => { state.error = null; render(); });
   on("[data-dismiss-notice]", "click", () => { state.notice = null; state.noticeTx = null; render(); });
-  bindAmountInput("#amount", (value) => { state.amount = value; refreshDepositCohort(); }, amountDecimalsFor(state.config));
-  app.querySelectorAll("[data-set-deposit-amount]").forEach((button) => button.addEventListener("click", () => {
-    state.amount = button.dataset.setDepositAmount;
-    render();
-  }));
+  bindAmountInput("#amount", (value) => { state.amount = value; }, amountDecimalsFor(state.config));
   app.querySelectorAll("[data-set-send-amount]").forEach((button) => button.addEventListener("click", () => {
     state.send.amount = button.dataset.setSendAmount;
     state.send.draft = null;
@@ -455,6 +558,7 @@ function bind() {
     render();
   });
   on("#switch-chain", "click", () => guard(switchToPoolChain));
+  on("#network-switch", "click", () => guard(switchToPoolChain));
   // Surgical, like the fee preview and the cohort counts: a full render on every
   // keystroke would rebuild the input and drop the caret mid-word.
   on("#notes-search", "input", (event) => {
@@ -572,6 +676,8 @@ async function guard(fn, noteProgress = null) {
   state.busy = true;
   state.noteProgress = noteProgress;
   state.error = null;
+  // A success banner from the last publication does not survive the next action.
+  state.publishPhase = null;
   // Any explorer link belongs to the action that just finished, never the next one.
   state.noticeTx = null;
   captureForm();
@@ -600,6 +706,9 @@ async function guard(fn, noteProgress = null) {
     state.provingSince = null;
     state.busy = false;
     state.noteProgress = null;
+    // A publication that threw (or that the user rejected) leaves a mid-flight
+    // phase behind; only the finished state is allowed to outlive the action.
+    if (state.publishPhase !== "published") state.publishPhase = null;
     render();
     // The error banner lives at the top of the workspace but actions sit at the bottom, so a
     // failure can land off-screen. Bring it into view rather than looking like a no-op.
@@ -628,16 +737,23 @@ function lockVault() {
 
 function renderLanding() {
   app.innerHTML = `
-    <header class="topbar landing-topbar">
-      <a class="brand" href="/"><span class="brand-mark">${icons.mark}</span><span>F5</span><span class="tag pink">A NODE TO TORNADO CASH</span></a>
-      <nav><a class="active teal-underline" href="/">Protocol</a><a class="pink-underline" href="#docs">Docs</a><a class="launch" href="/vault">OPEN VAULT ↗</a></nav>
-    </header>
     <main class="landing">
-      <section class="hero"><div class="hero-copy"><span class="sticker teal hero-sticker">★ THE HIGHEST CATEGORY ★</span><h1>BLOW AWAY<br>YOUR <span>TRAIL</span></h1><p>F5 is an independent relayer node. We broadcast your withdrawal and pay the gas, so your fresh wallet stays fresh and nothing on-chain points back at you.</p><div class="hero-actions"><a class="primary hero-primary" href="/vault">OPEN THE VAULT →</a><a class="secondary" href="#how">HOW IT WORKS</a></div><div class="node-pill"><i class="dot teal-dot"></i> NODE ONLINE</div></div><div class="hero-art"><div class="art-dots"></div><div class="trail-bars"><i class="bar blue-bar"></i><i class="bar teal-bar"></i><i class="bar yellow-bar"></i><i class="bar pink-bar"></i><i class="bar orange-bar"></i><i class="bar blue-bar short"></i><i class="bar teal-bar tiny"></i><b></b></div><span class="figure-label">FIG. 01 / CATEGORY F5</span></div></section>
-      <section id="how" class="how landing-how"><span class="eyebrow teal-text">THE SIMPLE VERSION</span><h2>THREE SPINS & YOU’RE GONE <span class="blue-text">〰</span></h2><div class="steps">${step("1", "ONE PHRASE", "Twelve words derive your note secrets, your shielded address, and your vault. It is the only thing you ever back up.", "MNEMONIC ROOT", "yellow")}${step("2", "BRIDGE BLIND", "You pay a shielded address using only its public keys. You never learn where the recipient cashes out.", "PUBLIC KEYS ONLY", "pink")}${step("3", "SCAN & LAND", "The recipient finds the note by scanning. Nobody tells them it exists, and they can withdraw anywhere.", "UNLINKABLE", "teal")}</div></section>
-      <div class="ticker">NO LOGS ★ NO ADMIN KEYS ★ NON-CUSTODIAL ★ GAS PAID BY THE STORM ★ NO LOGS ★ NO ADMIN KEYS ★</div>
+      <section class="launch-card">
+        <div class="launch-top">
+          <div class="launch-brand">
+            <span class="brand-mark">${icons.mark}</span>
+            <span class="launch-wordmark">F5</span>
+            <span class="launch-eyebrow">SHIELDED VAULT · 2026</span>
+          </div>
+          <span class="launch-status"><i class="live-dot"></i> NODE ONLINE</span>
+        </div>
+        <h1>Deposit once.<br>Stay shielded<br>everywhere.</h1>
+        <div class="launch-bottom">
+          <p>Private notes that travel across Ethereum and every L2. Keys stay local. No custody, no compromise.</p>
+          <a class="launch-cta" href="/vault">LAUNCH →</a>
+        </div>
+      </section>
     </main>
-    ${footer()}
   `;
 }
 
@@ -972,7 +1088,7 @@ function actionFlowDiagram({ ariaLabel, source, targets, interchange = false, in
       ${commonRoute}${routes}
       ${actionFlowNode(source, 246, centerY, "left")}
       ${nodes || `<text class="action-flow-empty" x="774" y="${centerY}">NO DESTINATIONS</text>`}
-      ${interchange ? `<image class="action-interchange" href="/f5-eye.svg" x="498" y="${centerY - 32}" width="64" height="64" /><text class="action-interchange-label" x="530" y="${centerY + 91}">F5</text>` : ""}
+      ${interchange ? `<image class="action-interchange" href="/f5-logo.png" x="498" y="${centerY - 32}" width="64" height="64" /><text class="action-interchange-label" x="530" y="${centerY + 91}">F5</text>` : ""}
     </svg>
   </div>`;
 }
@@ -1038,18 +1154,19 @@ function homeView() {
   return `
     <section class="panel home-panel">
       <div class="map-heading">
-        <div><span class="eyebrow">WHERE YOUR NOTES LIVE</span><h2>TRANSIT MAP</h2><p>Chains are stations. F5 is the interchange.</p></div>
+        <div><span class="eyebrow">YOUR VAULT AT A GLANCE</span><h2>WHERE YOUR MONEY IS</h2><p>Every chain you can reach, and what you're holding on each one.</p></div>
       </div>
       ${metroMap(destinations, l1Total, l1Notes.length)}
-      <p class="micro">current shielded notes only ★ spent and withdrawn history is not counted</p>
-      ${renderVaultIdentityControls({
-        shielded: state.identity.shielded,
-        account: state.account,
-        registered: state.registered,
-        busy: state.busy,
-      })}
-      ${noticeView()}
-    </section>`;
+      <p class="micro">this is what you can spend right now ★ notes you've already spent or withdrawn aren't counted</p>
+    </section>
+    ${renderVaultIdentityControls({
+      shielded: state.identity.shielded,
+      account: state.account,
+      registered: state.registered,
+      busy: state.busy,
+      publishPhase: state.publishPhase,
+    })}
+    ${noticeView()}`;
 }
 
 function noteMapDestination(key, label) {
@@ -1064,6 +1181,20 @@ function noteMapDestination(key, label) {
   const stateClass = available > 0n ? "has-value" : pending > 0n ? "has-pending" : "is-empty";
   const initials = key === "starknet" ? "SN" : label.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
   return { key, label, initials, total, available, pending, noteCount: notes.length, stateClass, color: chainBrand(key, label) };
+}
+
+/**
+ * The line under a station name, in plain words.
+ *
+ * An empty chain says so instead of printing three zeroes, and "pending" is
+ * only mentioned when something is actually waiting on the bridge.
+ */
+function destinationDetail({ available, pending, noteCount }) {
+  if (!noteCount) return "NOTHING HERE YET";
+  const parts = [`${fmt(available)} READY TO SPEND`];
+  if (pending > 0n) parts.push(`${fmt(pending)} ON THE WAY`);
+  parts.push(`${noteCount} NOTE${noteCount === 1 ? "" : "S"}`);
+  return parts.join(" · ");
 }
 
 function metroMap(destinations, l1Total, l1NoteCount) {
@@ -1086,7 +1217,7 @@ function metroMap(destinations, l1Total, l1NoteCount) {
       <text class="metro-badge-text route-label-${color}" x="733" y="${y + 1}">${escapeHtml(destination.initials)}</text>
       <text class="metro-chain-total" x="770" y="${y - 25}"><tspan>${fmt(destination.total)}</tspan><tspan class="metro-currency" dx="7">ETH</tspan></text>
       <text class="metro-chain-name" x="770" y="${y + 3}">${escapeHtml(destination.label)}</text>
-      <text class="metro-chain-detail" x="770" y="${y + 28}">${fmt(destination.available)} AVAIL · ${fmt(destination.pending)} PENDING · ${destination.noteCount} NOTE${destination.noteCount === 1 ? "" : "S"}</text>
+      <text class="metro-chain-detail" x="770" y="${y + 28}">${destinationDetail(destination)}</text>
     </g>`).join("");
 
   return `<div class="note-map metro-map">
@@ -1096,14 +1227,14 @@ function metroMap(destinations, l1Total, l1NoteCount) {
       <g class="metro-source-card">
         <text class="metro-chain-total" x="105" y="${centerY - 25}" text-anchor="end"><tspan>${fmt(l1Total)}</tspan><tspan class="metro-currency" dx="7">ETH</tspan></text>
         <text class="metro-chain-name" x="105" y="${centerY + 4}" text-anchor="end">ETHEREUM</text>
-        <text class="metro-chain-detail" x="105" y="${centerY + 30}" text-anchor="end">${l1NoteCount} READY NOTE${l1NoteCount === 1 ? "" : "S"}</text>
+        <text class="metro-chain-detail" x="105" y="${centerY + 30}" text-anchor="end">${l1NoteCount ? `${l1NoteCount} NOTE${l1NoteCount === 1 ? "" : "S"} READY TO SEND` : "DEPOSIT TO START HERE"}</text>
         <circle class="metro-badge route-ethereum" cx="147" cy="${centerY}" r="24" />
         <text class="metro-badge-text" x="147" y="${centerY + 1}">Ξ</text>
       </g>
       ${destinationCards}
-      <image class="metro-interchange" href="/f5-eye.svg" x="399" y="${centerY - 32}" width="64" height="64" />
+      <image class="metro-interchange" href="/f5-logo.png" x="399" y="${centerY - 32}" width="64" height="64" />
       <text class="metro-interchange-label" x="431" y="${centerY + 91}">F5</text>
-      ${destinations.length ? "" : `<text class="metro-empty" x="686" y="${centerY}">NO L2 DESTINATIONS CONFIGURED</text>`}
+      ${destinations.length ? "" : `<text class="metro-empty" x="686" y="${centerY}">NO CHAINS SET UP YET</text>`}
     </svg>
   </div>`;
 }
@@ -1117,30 +1248,6 @@ function amountToWei(text) {
   } catch {
     return null;
   }
-}
-
-/**
- * The crowd a DEPOSIT of this size joins.
- *
- * Counts deposits of the same value, because that is what the chain publishes
- * about a deposit. Nothing here is per-destination: a deposit carries no
- * destination, so routing cannot divide this number (CLAUDE.md §1).
- */
-function depositCohortMarkup(amountWei) {
-  if (state.poolValues === null || amountWei === null) return "";
-  const cohort = exactCohort(state.poolValues, amountWei);
-  if (cohort === null) return "";
-
-  const better = betterNearbyAmount(state.poolValues, amountWei);
-  const suggestion = better
-    ? `<button type="button" class="anon-suggest" data-set-deposit-amount="${truncateAmount(formatEther(better.amount), amountDecimalsFor(state.config))}">use ${truncateAmount(formatEther(better.amount), amountDecimalsFor(state.config))} → ${better.cohort}</button>`
-    : "";
-
-  const tone = cohort === 0 ? "is-alone" : cohort < 3 ? "is-thin" : "is-ok";
-  const headline = cohort === 0
-    ? "No other deposit is this size — this amount would identify you on its own."
-    : `${cohort} other deposit${cohort === 1 ? "" : "s"} share this exact amount.`;
-  return `<div class="anon-set ${tone}"><b>${cohort}</b><span>${headline}</span>${suggestion}</div>`;
 }
 
 /**
@@ -1180,7 +1287,6 @@ function depositView() {
       ${noticeView()}
       <div class="field-label"><span>FROM</span><span>${state.walletBalance === null ? "" : `BALANCE ${fmt(BigInt(state.walletBalance))} ${config?.symbol ?? "ETH"}&#12288;·&#12288;`}<i class="dot route-ethereum"></i> ${config?.chainName ?? "LOADING"}</span></div>
       <div class="amount-field"><div><input id="amount" value="${escapeHtml(displayedAmount)}" inputmode="decimal" autocomplete="off" /><small>up to ${amountDecimalsFor(config)} decimals · minimum ${minimum}</small></div>${state.walletBalance === null ? "" : `<button id="max-amount" type="button" class="max-chip" ${state.busy ? "disabled" : ""}>MAX</button>`}<button class="asset">${icons.eth} ${config?.symbol ?? "ETH"}</button></div>
-      <div id="deposit-cohort">${depositCohortMarkup(amountToWei(displayedAmount))}</div>
       <div class="field-label pool-label"><span>VARIABLE AMOUNT</span><span>${config ? `${config.vettingFeeBps / 100}% VETTING FEE` : "LOADING"}</span></div>
       <button id="action" class="primary" ${state.busy || walletOnWrongChain() ? "disabled" : ""}>${depositActionLabel()}</button>
       ${depositResultCard()}
@@ -1571,9 +1677,6 @@ function statusLabel(st) {
     : "checking status…";
 }
 
-function step(number, title, body, foot, color) {
-  return `<article class="step ${color}"><span class="number">${number}</span><h3>${title}</h3><p>${body}</p><small>→ ${foot}</small></article>`;
-}
 
 /*//////////////////////////////////////////////////////////////
                     PORTFOLIO / BALANCE MATH
@@ -2037,10 +2140,6 @@ function refreshNotesList() {
   slot.innerHTML = rows || `<div class="note-empty">${state.notesUi.query ? "No notes match this search." : "No notes on this route."}<br><span>${state.notesUi.query ? "Clear the search to see every note on this route." : "Run RESCAN to refresh this route."}</span></div>`;
 }
 
-function refreshDepositCohort() {
-  const slot = app.querySelector("#deposit-cohort");
-  if (slot) slot.innerHTML = depositCohortMarkup(amountToWei(state.amount || depositDefaultAmount(state.config)));
-}
 function randomField() {
   const bytes = new Uint8Array(31);
   crypto.getRandomValues(bytes);
@@ -2189,11 +2288,15 @@ function l1Chain() {
   return { id: c.chainId, name: c.chainName, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [c.rpcUrl] } } };
 }
 function readClient() {
-  return createPublicClient({ chain: l1Chain(), transport: state.config?.rpcUrl ? http(state.config.rpcUrl) : custom(window.ethereum) });
+  // wagmi holds the transport for the pool's chain, so reads go through the same
+  // config as everything else. Before config lands there is nothing to read from.
+  return wallets ? wallets.publicClient() : createPublicClient({ chain: l1Chain(), transport: http(state.config.rpcUrl) });
 }
+
 async function walletClient() {
-  if (!window.ethereum) throw new Error("Connect an Ethereum wallet first.");
-  if (!state.account) await connectWallet();
+  await ensureWallet();
+  if (!wallets.account()) await connectWallet();
+  if (!wallets.account()) throw new Error("Connect an Ethereum wallet first.");
   // Re-read rather than trusting the cached value: the user can move the wallet at
   // any point between opening the form and pressing the button, and every caller
   // here is about to ask for a signature that would fail on the wrong chain.
@@ -2201,21 +2304,115 @@ async function walletClient() {
   if (walletOnWrongChain()) {
     throw new Error(`This wallet is on chain ${state.walletChainId}, but the pool is on ${state.config.chainName} (${state.config.chainId}). Switch networks and try again.`);
   }
-  return createWalletClient({ account: state.account, chain: l1Chain(), transport: custom(window.ethereum) });
+  return wallets.signingClient();
 }
 
+/**
+ * Build the wallet connection, once, as soon as the pool's chain is known.
+ *
+ * wagmi wants its chain up front and `/api/config` supplies it, so this waits on
+ * the config rather than guessing. `restore` then reconnects the wallet the user
+ * last connected successfully — a wallet that fails is never recorded, so a
+ * broken one cannot become a choice that outlives the session.
+ */
+function ensureWallet() {
+  if (wallets) return Promise.resolve(wallets);
+  // Memoised, not just guarded: boot and a fast first click both call this, and
+  // the `await` inside leaves a window where two callers would each build a
+  // config — two connection watchers, and a `reconnect` the second one loses.
+  if (!walletSetup) {
+    walletSetup = (async () => {
+      if (!state.config) await loadConfig();
+      if (!state.config) throw new Error("Still loading network configuration — try again in a moment.");
+      wallets = createWallet({ chain: l1Chain(), storage: localStorage, onChange: onWalletChange });
+      await wallets.restore();
+      syncWalletState();
+      return wallets;
+    })();
+    walletSetup.catch(() => { walletSetup = null; });
+  }
+  return walletSetup;
+}
+
+/**
+ * Connect, asking which wallet whenever there is more than one to ask about.
+ *
+ * The picker opens on every connect rather than only the first, so a wallet the
+ * user wants to leave is never a dead end. Opening it is not a failure, so this
+ * returns rather than throwing — the picker's click comes back through
+ * `connectToWallet` with the choice made.
+ */
 async function connectWallet() {
-  if (!window.ethereum) throw new Error("Install an Ethereum wallet to continue.");
-  const [account] = await window.ethereum.request({ method: "eth_requestAccounts" });
+  await ensureWallet();
+  const installed = wallets.available();
+  if (!installed.length) throw new Error("Install an Ethereum wallet to continue.");
+  if (installed.length > 1) {
+    state.walletPicker = true;
+    render();
+    return;
+  }
+  await connectToWallet(installed[0].uid);
+}
+
+/**
+ * Open the picker on an already-connected wallet.
+ *
+ * The way out of a wallet the user no longer wants: switch to another installed
+ * one, or disconnect. Without this the account button is inert once connected.
+ */
+async function openWalletPicker() {
+  await ensureWallet();
+  state.walletPicker = true;
+  render();
+}
+
+/** Connect to the wallet the picker chose. */
+async function connectToWallet(uid) {
+  await ensureWallet();
+  state.walletPicker = false;
+  const account = await wallets.connectTo(uid);
   if (ragequitAccountKey(account) !== ragequitAccountKey(state.account)) {
     invalidateRagequitAuthorization({ clearEligibility: true });
   }
-  state.account = account;
-  state.registered = state.identity && cachedPublicationStatus(localStorage, account, state.identity.shielded) ? true : null;
-  await refreshWalletChain();
+  syncWalletState();
   await refreshWalletBalance();
   await checkRegistration();
   if (state.identity && state.view === "ragequit") await refreshRagequitEligibility();
+}
+
+/** Disconnect, and offer the picker again. */
+async function disconnectWallet() {
+  await wallets?.release();
+  state.walletPicker = false;
+  invalidateRagequitAuthorization({ clearEligibility: true });
+  syncWalletState();
+  render();
+}
+
+/** Mirror wagmi's connection into the `state` the views already read. */
+function syncWalletState() {
+  state.account = wallets?.account() ?? "";
+  state.walletChainId = wallets?.chainId() ?? null;
+  state.registered = state.identity && cachedPublicationStatus(localStorage, state.account, state.identity.shielded) ? true : null;
+}
+
+/**
+ * One subscription for what used to be two provider listeners.
+ *
+ * wagmi reports account and chain moves through the same connection, so the
+ * handler covers both — including the wallet being switched underneath us.
+ */
+function onWalletChange() {
+  const previous = state.account;
+  syncWalletState();
+  if (previous !== state.account) invalidateRagequitAuthorization({ clearEligibility: true });
+  render();
+  if (!state.identity) return;
+  void guard(async () => {
+    await refreshWalletBalance();
+    await checkRegistration();
+    if (state.view === "ragequit") await refreshRagequitEligibility();
+  }, state.view === "ragequit" ? "ragequit-check" : null);
 }
 
 /**
@@ -2234,16 +2431,9 @@ const DEPOSIT_GAS_BUDGET = 400_000n;
  * a mismatch, so a flaky provider cannot block a deposit that would have worked.
  */
 async function refreshWalletChain() {
-  if (!window.ethereum || !state.account) {
-    state.walletChainId = null;
-    return;
-  }
-  try {
-    const hex = await window.ethereum.request({ method: "eth_chainId" });
-    state.walletChainId = Number(hex);
-  } catch {
-    state.walletChainId = null;
-  }
+  // wagmi tracks the connected chain, so this is a read rather than an RPC call
+  // that could hang on a wallet that is installed but not answering.
+  state.walletChainId = wallets?.account() ? wallets.chainId() : null;
 }
 
 /** True only when the wallet has answered AND the answer is the wrong chain. */
@@ -2254,28 +2444,12 @@ function walletOnWrongChain() {
 /**
  * Ask the wallet to move to the pool's chain.
  *
- * 4902 means the wallet has never heard of the chain, so adding it is the only way
- * forward — `l1Chain()` already holds everything `wallet_addEthereumChain` needs.
+ * The hand-rolled 4902 retry is gone: wagmi falls back to adding the chain from
+ * the parameters the wallet module already holds.
  */
 async function switchToPoolChain() {
-  if (!window.ethereum || !state.config) throw new Error("Connect a wallet first.");
-  const chainIdHex = `0x${Number(state.config.chainId).toString(16)}`;
-  try {
-    await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainIdHex }] });
-  } catch (error) {
-    if (error?.code !== 4902) throw error;
-    const chain = l1Chain();
-    await window.ethereum.request({
-      method: "wallet_addEthereumChain",
-      params: [{
-        chainId: chainIdHex,
-        chainName: chain.name,
-        nativeCurrency: chain.nativeCurrency,
-        rpcUrls: chain.rpcUrls.default.http.filter(Boolean),
-        blockExplorerUrls: state.config.explorerUrl ? [state.config.explorerUrl] : undefined,
-      }],
-    });
-  }
+  if (!wallets?.account() || !state.config) throw new Error("Connect a wallet first.");
+  await wallets.switchToChain(state.config.explorerUrl);
   await refreshWalletChain();
   await refreshWalletBalance();
 }
@@ -2539,14 +2713,17 @@ async function registerShieldedAddress() {
   if (!state.identity) throw new Error("Unlock your vault first.");
   const { SHIELDED_SCHEME_ID, ERC6538_REGISTRY, encodeShieldedMetaAddress } = await sdk();
   const wallet = await walletClient();
+  setPublishPhase("signing");
   const hash = await wallet.writeContract({
     address: ERC6538_REGISTRY,
     abi: REGISTRY_ABI,
     functionName: "registerKeys",
     args: [SHIELDED_SCHEME_ID, encodeShieldedMetaAddress(state.identity.shielded)],
   });
+  setPublishPhase("confirming");
   await readClient().waitForTransactionReceipt({ hash });
   state.registered = true;
+  setPublishPhase("published");
   storePublicationStatus(localStorage, state.account, state.identity.shielded, true);
   state.notice = "Shielded address published. Senders can now resolve it from your address.";
   state.noticeTx = txLink(hash, "l1");
@@ -3106,6 +3283,12 @@ async function runDeposit() {
   void loadPoolValues();
 }
 
+/** Advance publication's phase and paint it before the next wait begins. */
+function setPublishPhase(phase) {
+  state.publishPhase = phase;
+  render();
+}
+
 /** Advance the deposit's phase and paint it before the next wait begins. */
 function setDepositPhase(phase) {
   state.deposit.phase = phase;
@@ -3564,32 +3747,36 @@ async function boot() {
 }
 
 boot();
+/**
+ * The wallet picker closes when the user looks away from it.
+ *
+ * Registered once on the document rather than inside `bind`, which re-runs on
+ * every render and would stack a fresh listener each time. Clicks inside the
+ * combo are ignored so the button that opens the picker cannot immediately
+ * close it, and `[data-connect-wallet]` is spared for the same reason — it
+ * lives in the identity card, outside the combo, and also opens the picker.
+ */
+document.addEventListener("click", (event) => {
+  if (!state.walletPicker) return;
+  if (event.target.closest?.(".wallet-combo, [data-connect-wallet]")) return;
+  state.walletPicker = false;
+  render();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !state.walletPicker) return;
+  state.walletPicker = false;
+  render();
+});
 window.addEventListener("popstate", () => {
   render();
   if (state.identity && state.view === "ragequit") void guard(refreshRagequitEligibility, "ragequit-check");
 });
-if (window.ethereum?.on) {
-  window.ethereum.on("accountsChanged", (accounts) => {
-    state.account = accounts?.[0] ?? "";
-    state.registered = state.identity && cachedPublicationStatus(localStorage, state.account, state.identity.shielded) ? true : null;
-    invalidateRagequitAuthorization({ clearEligibility: true });
-    render();
-    if (state.identity) {
-      void guard(async () => {
-        await refreshWalletBalance();
-        await checkRegistration();
-        if (state.view === "ragequit") await refreshRagequitEligibility();
-      }, state.view === "ragequit" ? "ragequit-check" : null);
-    }
-  });
-  window.ethereum.on("chainChanged", (chainId) => {
-    state.walletChainId = chainId ? Number(chainId) : null;
-    state.registered = state.identity && cachedPublicationStatus(localStorage, state.account, state.identity.shielded) ? true : null;
-    invalidateRagequitAuthorization({ clearEligibility: true });
-    render();
-    if (state.identity && state.view === "ragequit") {
-      void guard(refreshRagequitEligibility, "ragequit-check");
-    }
-  });
-}
+// Registered through the store rather than on a provider directly: switching
+// wallets has to move these listeners with the choice.
+// The connection is watched inside the wallet module (`onWalletChange`), so
+// there is nothing to bind here — but the wallet has to exist for that to fire,
+// and for a previously connected user to come back connected.
+void ensureWallet().then(render).catch(() => {
+  // No config yet means no wallet yet. The connect button builds it on demand.
+});
 window.setInterval(() => { void refreshInFlightRoutes(); }, 60_000);

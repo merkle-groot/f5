@@ -3,18 +3,18 @@
   "contracts": [
     {
       "name": "L2WithdrawalVerifier",
-      "address": "0x643aA915d2416118905618F109f6B639c904710A",
+      "address": "0xeEEd6485A583D197F2F5805AdE7Ec6ECBcDA833D",
       "deployer": "0x0eB4d30c3AeA7Beb5ce17c1533cefE755EC807e2",
-      "deploymentBlock": 289066469
+      "deploymentBlock": 289907218
     },
     {
       "name": "L2PrivacyPoolArbitrum",
-      "address": "0x37ac59BE36547894eF4B6441e1B1B5DA972E34Cb",
+      "address": "0xFbBa1F089Fc8E48559B52eb09fF1b07b943ab507",
       "deployer": "0x0eB4d30c3AeA7Beb5ce17c1533cefE755EC807e2",
-      "deploymentBlock": 289066469,
-      "scope": 1665611924453484550948121457193066529418764840997243701469503898091422324818,
+      "deploymentBlock": 289907225,
+      "scope": 1022032813726754599835372335224129201273942842455215250621746594862292704628,
       "asset": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
-      "l1Pool": "0x655A35C44dae43C57e796783E3b1ab9F7a8a2B67"
+      "l1Pool": "0xA52deB0B0284041BF11b8e156863A21292dB0818"
     }
   ]
 }

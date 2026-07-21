@@ -1,8 +1,51 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap');
 :root{--ink:#101010;--cream:#f7efdf;--paper:#fffdf8;--yellow:#ffd33f;--pink:#f8629b;--teal:#2fc0b5;--blue:#3f70ed;--orange:#f0522d;--shadow:8px 8px 0 var(--ink)}*{box-sizing:border-box}body{margin:0;background:var(--cream);color:var(--ink);font-family:'Space Grotesk',sans-serif}button,input{font:inherit}button{cursor:pointer}.topbar{height:108px;background:var(--paper);border-bottom:5px solid var(--ink);display:flex;align-items:center;justify-content:space-between;padding:0 4.5%;gap:30px}.brand{display:flex;align-items:center;gap:17px;font-size:32px;font-weight:700;text-decoration:none;color:var(--ink)}.brand-mark{display:block;width:54px;height:54px;border-radius:9px;overflow:hidden;flex:none}.brand-eye{display:block;width:100%;height:100%}.tag,.sticker{font:500 15px 'DM Mono';letter-spacing:2px;border:4px solid var(--ink);padding:10px 15px;box-shadow:4px 4px 0 var(--ink);transform:rotate(-2deg)}.pink{background:var(--pink)}nav{display:flex;gap:34px;font-size:20px;font-weight:700}nav a{color:var(--ink);text-decoration:none;padding:14px 0}nav .active{border-bottom:5px solid var(--orange)}.wallet{display:flex;gap:12px}.wallet button{background:var(--paper);border:4px solid var(--ink);box-shadow:4px 4px 0 var(--ink);padding:13px 17px;font-weight:700}.network{font-size:16px}.account{font:500 14px 'DM Mono'}.account strong{background:var(--ink);color:var(--yellow);padding:8px;margin-left:12px}.dot{display:inline-block;width:14px;height:14px;border:3px solid var(--ink);border-radius:50%;margin-right:8px}.blue{background:var(--blue)}.teal-dot{background:var(--teal)}main{max-width:1440px;margin:auto}.workspace{display:grid;grid-template-columns:minmax(600px,1.15fr) minmax(390px,.7fr);gap:45px;padding:64px 5% 80px;position:relative}.panel,.composer{background:var(--paper);border:5px solid var(--ink);box-shadow:var(--shadow)}.composer{padding:40px;position:relative;min-height:800px}.sticker-top{position:absolute;right:30px;top:-27px}.teal{background:var(--teal)}.tabs{display:flex;width:355px;border:5px solid var(--ink);box-shadow:4px 4px 0 var(--ink);margin-bottom:38px}.tabs button{border:0;background:var(--paper);padding:20px 35px;font:500 16px 'DM Mono';font-weight:700;letter-spacing:1px;flex:1}.tabs .selected{background:var(--ink);color:var(--yellow)}.field-label{display:flex;justify-content:space-between;font:500 14px 'DM Mono';letter-spacing:2px;margin-bottom:17px}.amount-field{border:5px solid var(--ink);height:165px;display:flex;align-items:center;justify-content:space-between;padding:26px 30px;margin-bottom:25px}.amount-field input{border:0;outline:0;background:transparent;width:220px;font-size:55px;font-weight:700}.amount-field small{display:block;color:#666;font:16px 'DM Mono'}.asset{background:var(--yellow);border:4px solid var(--ink);box-shadow:5px 5px 0 var(--ink);padding:15px 18px;font-weight:700}.eth{display:inline-grid;place-items:center;width:31px;height:31px;border:3px solid var(--ink);background:var(--blue);border-radius:50%;color:white;margin-right:8px}.pool-label{margin-top:12px}.denoms{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}.denom{background:var(--paper);border:4px solid var(--ink);padding:18px 7px}.denom strong,.denom small{display:block}.denom strong{font-size:27px}.denom small{font:500 12px 'DM Mono';margin-top:9px}.denom.chosen{background:var(--yellow);box-shadow:5px 5px 0 var(--ink)}.direction{font-size:44px;text-align:center;border-bottom:5px solid var(--ink);line-height:1;margin:39px 0 34px}.notice{border:5px solid var(--ink);padding:24px 28px;box-shadow:5px 5px 0 var(--ink);display:flex;gap:10px;flex-direction:column;margin-bottom:35px}.notice strong{font-size:22px}.notice span{font-size:17px;line-height:1.4}.pink-card{background:var(--pink)}.teal-card{background:var(--teal)}.primary{width:100%;border:5px solid var(--ink);box-shadow:6px 6px 0 var(--ink);background:var(--yellow);padding:22px;font:700 18px 'DM Mono';letter-spacing:1px}.primary:disabled{opacity:.75;cursor:wait}.micro{text-align:center;color:#666;font:500 12px 'DM Mono';margin-top:25px}.aside{display:flex;flex-direction:column;gap:42px}.blue-card{background:var(--blue);color:#fff;padding:32px;box-shadow:var(--shadow);border:5px solid var(--ink)}.card-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}.card-heading h2{margin:0;font-size:24px}.blue-card p{font-size:17px;line-height:1.45;margin:26px 0}.online{background:var(--paper);color:var(--ink);border:4px solid var(--ink);padding:9px 12px;font:500 12px 'DM Mono'}.stats{display:grid;grid-template-columns:1fr 1fr;gap:16px}.stats div{background:var(--paper);color:var(--ink);border:4px solid var(--ink);padding:17px}.stats .yellow-stat{background:var(--yellow)}.stats strong,.stats small{display:block}.stats strong{font-size:31px}.stats small{font:500 12px 'DM Mono';margin-top:6px}.notes{padding:30px 30px 20px}.notes .small{padding:7px 10px;font-size:11px;box-shadow:3px 3px 0 var(--ink)}.note{border:4px solid var(--ink);padding:14px 16px;margin-top:18px;display:flex;align-items:center;gap:13px}.note-icon,.circle-icon{display:grid;place-items:center;width:48px;height:48px;border:3px solid var(--ink);border-radius:50%;background:var(--blue);color:white;font-size:24px}.note div:nth-child(2){flex:1}.note strong,.note small{display:block}.note small{font:12px 'DM Mono';color:#666;margin-top:4px}.note b{font:700 13px 'DM Mono';color:var(--orange)}.note.muted{opacity:.62}.withdraw-hero{display:flex;gap:18px;align-items:center;background:var(--yellow);border:4px solid var(--ink);padding:22px;margin-bottom:28px}.circle-icon{background:var(--teal)}.withdraw-hero h3{margin:4px 0;font-size:26px}.withdraw-hero p{margin:0;color:#555}.eyebrow{font:500 12px 'DM Mono';letter-spacing:2px}.input-label{font:500 13px 'DM Mono';letter-spacing:2px;display:block;margin-bottom:27px}.input-label input{display:block;width:100%;border:4px solid var(--ink);padding:18px;margin-top:10px;background:var(--paper);outline:0}.how{padding:86px 5% 110px;border-top:5px solid var(--ink)}.how h2{font-size:54px;line-height:1;margin:20px 0 50px}.teal-text{color:var(--teal)}.blue-text{color:var(--blue)}.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:36px}.step{min-height:360px;border:5px solid var(--ink);box-shadow:var(--shadow);padding:72px 36px 30px;position:relative;transform:rotate(-1deg)}.step:nth-child(2){transform:rotate(1deg)}.step:nth-child(3){transform:rotate(-.5deg)}.step.yellow{background:var(--yellow)}.step.pink{background:var(--pink)}.step.teal{background:var(--teal)}.number{position:absolute;top:-29px;left:28px;background:var(--paper);border:5px solid var(--ink);width:58px;height:58px;border-radius:50%;display:grid;place-items:center;font-size:24px;font-weight:700}.step h3{font-size:27px;line-height:1.1;margin:0 0 22px}.step p{font-size:17px;line-height:1.45}.step small{position:absolute;bottom:30px;font:500 13px 'DM Mono';letter-spacing:1px}footer{border-top:5px solid var(--ink);background:var(--paper);padding:28px 5%;display:flex;justify-content:space-between;font:500 13px 'DM Mono';letter-spacing:1px}footer a{color:var(--ink);margin-left:24px;text-decoration:none;border-bottom:4px solid var(--orange)}footer .run{border-color:var(--teal)}.scribble{position:absolute;left:10px;top:95px;font-size:80px;background:transparent;color:var(--teal);transform:rotate(-12deg)}
 @media(max-width:1000px){.topbar{height:auto;padding:20px 5%;flex-wrap:wrap}.topbar nav{order:3;width:100%;justify-content:center}.wallet{margin-left:auto}.workspace{grid-template-columns:1fr}.aside{display:grid;grid-template-columns:1fr 1fr}.how h2{font-size:42px}}@media(max-width:650px){.brand .tag,.wallet{display:none}.workspace{padding:45px 20px}.composer{padding:25px;min-height:0}.tabs{width:100%}.tabs button{padding:15px 8px}.amount-field{height:135px;padding:16px}.amount-field input{font-size:43px;width:150px}.denoms{gap:6px}.denom{padding:12px 3px}.denom strong{font-size:20px}.denom small{font-size:9px}.aside,.steps{display:flex;flex-direction:column}.how{padding:60px 20px}.how h2{font-size:35px}.step{min-height:300px}footer{display:block;line-height:2}.scribble{display:none}}
-.landing-topbar nav{gap:30px}.landing-topbar nav a{border-bottom:4px solid transparent}.landing-topbar .teal-underline{border-color:var(--teal)}.landing-topbar .yellow-underline{border-color:var(--yellow)}.landing-topbar .pink-underline{border-color:var(--pink)}.landing-topbar .launch{background:var(--blue);color:white;border:4px solid var(--ink);box-shadow:6px 6px 0 var(--ink);padding:16px 24px}.landing{max-width:none}.hero{max-width:1440px;margin:auto;min-height:750px;padding:100px 5% 70px;display:grid;grid-template-columns:1.1fr .9fr;gap:70px;align-items:center}.hero-copy{position:relative}.hero-sticker{display:inline-block;margin-bottom:40px}.hero h1{font-size:92px;line-height:.9;letter-spacing:-5px;margin:0 0 36px}.hero h1 span{background:var(--orange);color:var(--paper);display:inline-block;padding:2px 22px 8px;border:5px solid var(--ink);box-shadow:8px 8px 0 var(--ink);transform:rotate(-2deg)}.hero p{font-size:21px;line-height:1.45;max-width:650px;margin-bottom:38px}.hero-actions{display:flex;align-items:center;gap:28px}.hero-actions a{text-decoration:none;color:var(--ink)}.hero-primary{display:inline-block;width:auto}.secondary{border:5px solid var(--ink);box-shadow:6px 6px 0 var(--ink);background:var(--paper);padding:22px 30px;font:700 16px 'DM Mono'}.node-pill{display:inline-block;border:4px solid var(--ink);background:var(--paper);padding:14px 20px;margin-top:45px;font:500 13px 'DM Mono';letter-spacing:1px}.hero-art{height:610px;border:5px solid var(--ink);box-shadow:var(--shadow);background:var(--paper);position:relative;overflow:hidden}.art-dots{position:absolute;inset:0;background-image:radial-gradient(#c8c5be 2px,transparent 2px);background-size:22px 22px}.trail-bars{position:absolute;top:90px;right:-40px;display:flex;flex-direction:column;gap:13px;align-items:flex-end}.bar{height:34px;border:5px solid var(--ink);border-radius:30px;display:block;box-shadow:5px 5px 0 var(--ink)}.blue-bar{background:var(--blue);width:430px}.teal-bar{background:var(--teal);width:330px}.yellow-bar{background:var(--yellow);width:260px}.pink-bar{background:var(--pink);width:210px}.orange-bar{background:var(--orange);width:160px}.short{width:120px}.tiny{width:65px}.trail-bars b{display:block;width:40px;height:40px;border:4px solid var(--ink);background:var(--ink);border-radius:50%;margin-right:35px}.figure-label{position:absolute;bottom:25px;left:25px;background:var(--pink);border:4px solid var(--ink);padding:10px 14px;font:500 13px 'DM Mono';letter-spacing:2px}.landing-stats{display:grid;grid-template-columns:repeat(4,1fr);border-top:5px solid var(--ink);border-bottom:5px solid var(--ink)}.landing-stats div{padding:36px 40px;border-right:5px solid var(--ink);background:var(--paper)}.landing-stats div:last-child{border-right:0}.landing-stats .yellow-stat{background:var(--yellow)}.landing-stats .pink-stat{background:var(--pink)}.landing-stats .teal-stat{background:var(--teal)}.landing-stats strong,.landing-stats small{display:block}.landing-stats strong{font-size:52px;letter-spacing:-3px}.landing-stats small{font:500 14px 'DM Mono';letter-spacing:2px;margin-top:8px}.landing-how{padding-top:100px}.ticker{background:var(--ink);color:var(--yellow);font:700 24px 'DM Mono';letter-spacing:1px;white-space:nowrap;overflow:hidden;padding:24px 0;text-align:center}
-@media(max-width:1000px){.hero{grid-template-columns:1fr;min-height:0}.hero-art{height:500px}.hero h1{font-size:72px}.landing-stats{grid-template-columns:repeat(2,1fr)}.landing-stats div:nth-child(2){border-right:0}.landing-stats div{border-bottom:5px solid var(--ink)}}@media(max-width:650px){.landing-topbar nav{gap:12px;font-size:13px}.landing-topbar nav a:not(.launch){display:none}.hero{padding:60px 20px}.hero h1{font-size:55px;letter-spacing:-3px}.hero p{font-size:18px}.hero-actions{flex-direction:column;align-items:stretch}.hero-actions a{text-align:center}.hero-art{height:380px}.blue-bar{width:280px}.teal-bar{width:220px}.landing-stats{grid-template-columns:1fr}.landing-stats div{border-right:0}.landing-stats strong{font-size:42px}.ticker{font-size:16px}}
+/* LANDING ------------------------------------------------------------------
+   A single card, one screen, no scroll: the promise, the proof of life, and the
+   way in. Everything explanatory lives inside the vault. */
+.landing{max-width:none;min-height:100vh;display:grid;place-items:center;padding:40px 4vw 52px}
+.launch-card{width:min(1180px,100%);min-height:min(800px,86vh);background:var(--yellow);border:5px solid var(--ink);box-shadow:14px 14px 0 var(--ink);padding:60px 68px 66px;display:flex;flex-direction:column;gap:56px}
+.launch-top{display:flex;justify-content:space-between;align-items:center;gap:24px}
+.launch-brand{display:flex;align-items:center;gap:15px}
+.launch-brand .brand-mark{width:46px;height:46px}
+.launch-wordmark{font-size:30px;font-weight:700;letter-spacing:-1px}
+.launch-eyebrow{font:500 15px 'DM Mono';letter-spacing:6px;padding-left:20px;margin-left:5px;border-left:3px solid var(--ink)}
+.launch-status{display:inline-flex;align-items:center;background:var(--paper);border:4px solid var(--ink);padding:12px 18px;font:500 14px 'DM Mono';letter-spacing:2px;white-space:nowrap}
+.live-dot{width:11px;height:11px;border-radius:50%;background:#35c76a;margin-right:11px}
+.launch-card h1{margin:auto 0;font-size:clamp(46px,6.6vw,94px);line-height:1.03;letter-spacing:-3px;font-weight:700}
+.launch-bottom{display:flex;justify-content:space-between;align-items:flex-end;gap:48px}
+.launch-bottom p{margin:0;max-width:44ch;font:500 17px/1.8 'DM Mono';letter-spacing:.4px}
+.launch-cta{flex:none;background:var(--ink);color:var(--yellow);text-decoration:none;font:700 22px 'DM Mono';letter-spacing:2px;padding:30px 46px;box-shadow:10px 10px 0 var(--orange)}
+@media(max-width:900px){.launch-card{padding:40px 34px 44px;gap:44px;min-height:0}.launch-bottom{flex-direction:column;align-items:stretch;gap:34px}.launch-cta{text-align:center;padding:24px 30px;font-size:19px}}
+@media(max-width:650px){.landing{padding:24px 18px 34px}.launch-card{box-shadow:9px 9px 0 var(--ink)}.launch-top{flex-direction:column;align-items:flex-start;gap:18px}.launch-eyebrow{border-left:0;padding-left:0;margin-left:0}.launch-eyebrow{letter-spacing:4px;font-size:13px}.launch-bottom p{font-size:15px;line-height:1.7}}
+   transit language the vault draws, so the pitch and the product match. */
+.landing-topbar nav{gap:34px;align-items:center}
+.landing-topbar nav a{border-bottom:4px solid transparent}
+.landing-topbar .launch{background:var(--blue);color:#fff;border:4px solid var(--ink);box-shadow:6px 6px 0 var(--ink);padding:16px 24px}
+.landing{max-width:none}
+.hero{max-width:1440px;margin:auto;padding:110px 5% 100px;display:grid;grid-template-columns:1.05fr .95fr;gap:80px;align-items:center}
+.hero h1{font-size:96px;line-height:.88;letter-spacing:-5px;margin:0 0 34px}
+.hero h1 span{background:var(--orange);color:var(--paper);display:inline-block;padding:2px 22px 8px;border:5px solid var(--ink);box-shadow:8px 8px 0 var(--ink);transform:rotate(-2deg)}
+.hero p{font-size:23px;line-height:1.4;max-width:26ch;margin:0 0 46px;color:#3a3a3a}
+.hero-actions{display:flex;align-items:center;gap:24px;flex-wrap:wrap}
+.hero-actions a{text-decoration:none;color:var(--ink)}
+.hero-primary{display:inline-block;width:auto}
+.secondary{border:5px solid var(--ink);box-shadow:6px 6px 0 var(--ink);background:var(--paper);padding:22px 30px;font:700 16px 'DM Mono'}
+.node-pill{display:inline-block;border:4px solid var(--ink);background:var(--paper);padding:14px 20px;margin-top:42px;font:500 13px 'DM Mono';letter-spacing:1px}
+.hero-art{aspect-ratio:14/13;border:5px solid var(--ink);box-shadow:var(--shadow);background:var(--paper);position:relative;overflow:hidden}
+.art-dots{position:absolute;inset:0;background-image:radial-gradient(#ddd8cc 2px,transparent 2px);background-size:26px 26px}
+.hero-map{position:absolute;inset:0;width:100%;height:100%}
+.hero-line{fill:none;stroke:var(--route-color);stroke-width:13;stroke-linecap:round;filter:drop-shadow(2px 2px 0 rgba(16,16,16,.35))}
+.hero-node{fill:var(--route-color);stroke:var(--ink);stroke-width:5}
+.hero-label{fill:var(--ink);font:700 13px 'DM Mono',monospace;letter-spacing:2px;text-anchor:middle}
+.landing-how{padding:96px 5% 100px}
+.landing-how h2{font-size:60px;margin:0 0 60px}
+.landing-how .step{min-height:0;padding:60px 32px 40px}
+.landing-how .step p{font-size:19px;margin:0}
+.ticker{background:var(--ink);color:var(--yellow);font:700 22px 'DM Mono';letter-spacing:1px;white-space:nowrap;overflow:hidden;padding:22px 0;text-align:center}
+@media(max-width:1000px){.hero{grid-template-columns:1fr;gap:56px;padding:70px 5% 80px}.hero h1{font-size:74px}.hero-art{max-width:560px}.landing-how h2{font-size:44px}}
+@media(max-width:650px){.landing-topbar nav{gap:14px;font-size:14px}.landing-topbar nav a:not(.launch){display:none}.hero{padding:56px 20px 64px}.hero h1{font-size:55px;letter-spacing:-3px}.hero p{font-size:19px}.hero-actions{flex-direction:column;align-items:stretch}.hero-actions a{text-align:center}.landing-how{padding:64px 20px 70px}.landing-how h2{font-size:35px}.ticker{font-size:15px}}
 .node-facts{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}.node-facts span{border:3px solid var(--ink);background:var(--paper);color:var(--ink);padding:12px 14px;font:500 12px 'DM Mono';letter-spacing:1px}.notes .card-heading>div{display:flex;align-items:center;gap:12px}.unlock{border:3px solid var(--ink);background:var(--yellow);padding:7px 10px;font:500 11px 'DM Mono';letter-spacing:1px}.note-empty{border:4px dashed #aaa;color:#666;padding:26px;text-align:center;font:500 13px 'DM Mono';line-height:1.7;margin-top:18px}.note-empty span{font-size:11px}
 .flow-step{display:flex;gap:14px;align-items:flex-start;border:4px solid var(--ink);padding:18px;margin-bottom:18px;background:var(--paper)}.flow-step h3{margin:4px 0;font-size:22px}.flow-step p{margin:0;color:#555;line-height:1.4}.flow-number{background:var(--yellow);border:3px solid var(--ink);padding:8px 10px;font:700 12px 'DM Mono'}.flow-step.muted-step{opacity:.55}.input-label select{display:block;width:100%;border:4px solid var(--ink);padding:18px;margin-top:10px;background:var(--paper);outline:0}.unlock:disabled{opacity:.5}
 
@@ -182,7 +225,7 @@
 .flow-panel{padding:36px}
 .action-flow-diagram{margin:0 0 28px;padding:18px;border:5px solid var(--ink);background:var(--paper);box-shadow:7px 7px 0 var(--ink);overflow:hidden}
 .action-flow-diagram svg{display:block;width:100%;max-width:100%;min-width:0;height:auto}
-.action-route{fill:none;stroke:var(--route-color);stroke-width:14;stroke-linecap:round}
+.action-route{fill:none;stroke:var(--route-color);stroke-width:14;stroke-linecap:round;filter:drop-shadow(2px 2px 0 rgba(16,16,16,.35))}
 .action-route-motion{fill:none;stroke:var(--paper);stroke-width:3;stroke-linecap:round;stroke-dasharray:3 17;animation:flow-dash 1.15s linear infinite,flow-pulse 1.8s ease-in-out infinite}
 .action-node-badge{fill:var(--route-color);stroke:var(--ink);stroke-width:7}
 .action-node-icon,.action-node-title,.action-node-detail,.action-interchange-label,.action-flow-empty{fill:var(--ink);font-family:'DM Mono',monospace}
@@ -227,20 +270,22 @@
 .route-yellow{--route-color:var(--yellow)}
 .route-ink{--route-color:var(--ink);color:var(--cream)}
 .route-muted{--route-color:#aaa}
-.route-ethereum{--route-color:#a7a7a7}
+.route-ethereum{--route-color:#8a63f2;color:#fff}
 .route-arbitrum{--route-color:#00e340}
 .route-base{--route-color:#0000ff;color:#fff}
 .route-starknet{--route-color:#ec796b}
 .route-optimism{--route-color:#ff0421;color:#fff}
-.eth{background:#a7a7a7;color:var(--ink)}
+.eth{background:#8a63f2;color:#fff}
 .dot[class*="route-"]{background:var(--route-color)}
-.route-label-base,.route-label-optimism{fill:#fff;color:#fff}
-.metro-route{fill:none;stroke:var(--route-color);stroke-width:14;stroke-linecap:round}
+.route-label-base,.route-label-optimism,.route-label-ethereum{fill:#fff;color:#fff}
+/* Routes carry the same hard offset shadow as the cards, so the lines sit
+   above the map sheet rather than being printed on it. */
+.metro-route{fill:none;stroke:var(--route-color);stroke-width:14;stroke-linecap:round;filter:drop-shadow(2px 2px 0 rgba(16,16,16,.35))}
 .metro-station{fill:var(--paper);stroke:var(--ink);stroke-width:8}
 .metro-badge{fill:var(--route-color);stroke:var(--ink);stroke-width:7}
 .metro-badge-text,.metro-chain-name,.metro-chain-total,.metro-chain-detail,.metro-source-total,.metro-source-name,.metro-source-detail,.metro-interchange-label,.metro-empty{fill:var(--ink);font-family:'DM Mono',monospace}
 .metro-badge-text{font-size:14px;font-weight:800;text-anchor:middle;dominant-baseline:middle}
-.metro-badge-text.route-label-base,.metro-badge-text.route-label-optimism{fill:#fff}
+.metro-badge-text.route-label-base,.metro-badge-text.route-label-optimism,.metro-badge-text.route-label-ethereum{fill:#fff}
 .metro-chain-total,.metro-source-total{font-size:21px;font-weight:800}
 .metro-currency{font-size:12px}
 .metro-chain-name,.metro-source-name{font-size:19px;font-weight:900}
@@ -281,6 +326,9 @@
 //////////////////////////////////////////////////////////////*/
 
 /* The unlocked vault is one framed object with a compact desktop rail. */
+/* The page behind the frame drops a shade and picks up a faint grid so the
+   cream frame and its white panels read as an object sitting on a surface. */
+body:has(.vault-frame){background:#eae0cb;background-image:radial-gradient(rgba(16,16,16,.09) 1px,transparent 1px);background-size:16px 16px;background-attachment:fixed}
 .vault-frame{width:calc(100% - 48px);max-width:1190px;margin:30px auto 56px;background:var(--cream);border:2px solid var(--ink);box-shadow:10px 10px 0 var(--ink)}
 .vault-frame>.topbar{height:84px;padding:0 26px;border-bottom:2px solid var(--ink);background:var(--paper)}
 .vault-frame .brand{gap:13px;font-size:25px}
@@ -309,6 +357,9 @@
 
 /* Keep the map readable without letting it grow into a full-page illustration. */
 .vault-frame .home-panel{padding:27px 25px 22px}
+/* Inside the frame the card is a peer of the other tiles, so it wears their
+   thinner border and shorter shadow rather than the full-page treatment. */
+.vault-frame .transit-identity.credential-card{border-width:2px;box-shadow:7px 7px 0 var(--ink)}
 .vault-frame .map-heading{margin-bottom:18px;align-items:flex-start}
 .vault-frame .map-heading h2{font-size:36px}
 .vault-frame .map-heading p{margin-top:7px;font:500 11px 'DM Mono'}
@@ -378,18 +429,13 @@
 .vault-notes-tile .group-heading{border-bottom-width:2px}
 .vault-notes-tile .vnote{border-width:2px}
 
-.transit-identity{margin-top:22px;padding-top:22px;border-top:2px solid var(--ink)}
+/* Its own tile in the workspace column, not a footer stapled to the map. */
+.transit-identity{margin-top:0}
 .transit-identity .card-heading h2{font-size:20px}
 .transit-identity .identity-copy{max-width:760px;color:#555;line-height:1.5}
 .transit-identity .online{border-width:2px;padding:8px 11px;font-size:9px}
 .transit-identity .identity-connect{cursor:pointer;font:700 9px 'DM Mono';letter-spacing:1px;background:var(--yellow)}
 .transit-identity .identity-connect:hover{background:var(--teal)}
-.shielded-key-list{display:flex;flex-direction:column;gap:10px}
-.shielded-key-row{display:grid;grid-template-columns:112px minmax(0,1fr) 58px;gap:12px;align-items:center;min-height:48px;border:2px solid var(--ink);padding:8px 10px;background:#fbf7ed}
-.shielded-key-row>span{color:#666;font:500 9px 'DM Mono';letter-spacing:1.5px}
-.shielded-key-row code{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:500 11px 'DM Mono'}
-.shielded-key-row button{border:1px solid var(--ink);background:var(--paper);padding:6px 8px;font:700 8px 'DM Mono';letter-spacing:1px}
-.shielded-key-row button:hover{background:var(--yellow)}
 .transit-identity-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:18px;padding-top:18px;border-top:2px solid var(--ink)}
 .transit-identity-actions .secondary-btn{border-width:2px;box-shadow:4px 4px 0 var(--ink);padding:13px}
 .transit-identity-actions .secondary-btn:disabled{box-shadow:none;border-style:dashed;background:transparent;color:#888;cursor:not-allowed}
@@ -434,7 +480,7 @@
 .input-with-mark{position:relative}
 .input-with-mark input{padding-right:64px}
 .input-mark{position:absolute;right:14px;top:50%;transform:translateY(-50%);display:block;width:34px;height:34px;border:3px solid var(--ink);overflow:hidden;line-height:0}
-.transit-identity.credential-card{margin-top:26px;padding:24px;border:5px solid var(--ink);box-shadow:var(--shadow);background:var(--yellow)}
+.transit-identity.credential-card{padding:24px;border:5px solid var(--ink);box-shadow:var(--shadow);background:var(--yellow)}
 .credential-heading{display:flex;align-items:center;flex-wrap:wrap;gap:12px}
 .credential-heading h2{margin:0;flex:1 1 auto}
 .registry-badge{border:3px solid var(--ink);background:var(--paper);padding:7px 11px;font:700 9px 'DM Mono';letter-spacing:1.5px;box-shadow:3px 3px 0 var(--ink)}
@@ -442,17 +488,35 @@
 .credential-body{display:flex;margin-top:20px;border:4px solid var(--ink);background:var(--paper)}
 .credential-stub{flex:none;width:172px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:22px 16px;text-align:center}
 .credential-stub .eyebrow{color:#777}
+/* The stub mark wears the same frame as the topbar one, at half the size. */
+.stub-identicon{display:block;line-height:0;border:4px solid var(--ink);box-shadow:4px 4px 0 var(--ink);background:var(--paper)}
 .fingerprint-caption{margin:0;font:500 10px 'DM Mono';line-height:1.6;color:#666}
 .credential-perforation{flex:none;width:0;border-left:3px dashed var(--ink);margin:16px 0}
 .credential-details{flex:1;min-width:0;padding:22px 26px;display:flex;flex-direction:column;gap:16px}
-.credential-field{display:flex;flex-direction:column;gap:6px}
+.credential-field{display:flex;flex-direction:column;gap:12px}
 .credential-field .eyebrow{color:#777}
-.credential-field code{font:500 12px 'DM Mono';word-break:break-all;line-height:1.5}
-.credential-details .shielded-key-row:nth-child(1)>span{color:var(--blue)}
-.credential-details .shielded-key-row:nth-child(2)>span{color:var(--pink)}
-.key-value{display:flex;flex-direction:column;gap:3px;min-width:0}
-.key-value small{color:#888;font:500 8px 'DM Mono';letter-spacing:1.2px}
-.copy-meta-address{width:100%;margin-top:2px}
+.holder-line{margin:0;font-size:14px;line-height:1.5;color:#444}
+/* The address is the handle a sender acts on, so it reads as one object:
+   a framed chip with COPY sitting on its right edge. */
+.holder-row{display:flex;align-items:stretch;gap:0;border:3px solid var(--ink);background:#fbf7ed;box-shadow:4px 4px 0 var(--ink)}
+.holder-address{flex:1;min-width:0;display:flex;align-items:center;padding:12px 14px;font:600 13px 'DM Mono';word-break:break-all;line-height:1.4}
+.holder-row.is-empty{background:transparent;border-style:dashed;box-shadow:none}
+.holder-empty{color:#888;font:500 12px 'DM Mono'}
+.copy-meta-address{flex:none;align-self:stretch;border:0;border-left:3px solid var(--ink);background:var(--paper);padding:0 14px;font:700 10px 'DM Mono';letter-spacing:1px}
+.copy-meta-address:hover:not(:disabled){background:var(--yellow)}
+.copy-meta-address:disabled{background:transparent;color:#aaa;border-left-style:dashed;cursor:not-allowed}
+/* Publishing is the whole job of the unpublished card, so it gets the full
+   width and the same press-in feedback as the primary buttons. */
+.holder-publish{display:block;width:100%;border:3px solid var(--ink);background:var(--yellow);box-shadow:5px 5px 0 var(--ink);padding:17px;font:700 13px 'DM Mono';letter-spacing:1.5px}
+.holder-publish:hover:not(:disabled){background:var(--teal)}
+.holder-publish:active:not(:disabled){transform:translate(3px,3px);box-shadow:2px 2px 0 var(--ink)}
+.holder-publish:disabled{background:transparent;color:#999;border-style:dashed;box-shadow:none;cursor:wait}
+/* Mid-flight the button keeps its fill and shadow: it is reporting progress,
+   not offering an action, and the dashed disabled look reads as broken here. */
+.holder-publish.is-working:disabled{background:var(--yellow);color:var(--ink);border-style:solid;box-shadow:5px 5px 0 var(--ink)}
+.publish-done{display:flex;align-items:baseline;gap:8px;margin:0 0 12px;border:3px solid var(--ink);background:var(--teal);box-shadow:4px 4px 0 var(--ink);padding:12px 14px;font:500 12px 'DM Mono';line-height:1.5}
+.publish-done b{font:700 12px 'DM Mono';letter-spacing:1px;white-space:nowrap}
+.holder-row.just-published{border-color:var(--ink);background:#eefbf8}
 /* Copy confirmation. Fixed to the viewport so a re-render cannot orphan it. */
 .copied-sticker{position:fixed;z-index:60;pointer-events:none;background:var(--teal);border:3px solid var(--ink);box-shadow:3px 3px 0 var(--ink);padding:6px 10px;font:700 10px 'DM Mono';letter-spacing:1.5px;white-space:nowrap;animation:copied-pop 1.15s ease forwards}
 @keyframes copied-pop{
@@ -525,8 +589,6 @@
   .notes-heading-actions{justify-content:space-between}
   .vault-notes-tile .notes-heading{flex-direction:column;gap:14px}
   .vault-frame .note-map svg{width:680px;min-width:680px}
-  .shielded-key-row{grid-template-columns:1fr 54px;gap:7px}
-  .shielded-key-row>span{grid-column:1/-1}
   .transit-identity-actions{grid-template-columns:1fr}
   .ragequit-account{grid-template-columns:1fr}
   .vault-frame+footer{width:calc(100% - 24px);margin-top:-22px}
@@ -578,3 +640,36 @@
 .notes-search:focus{box-shadow:4px 4px 0 var(--ink)}
 .notes-sort{flex:none;min-width:96px}
 .proving-elapsed{font:500 14px 'DM Mono';border:3px solid var(--ink);background:var(--paper);padding:3px 8px;margin-left:10px;vertical-align:middle}
+
+.account-slot{position:relative}
+.account{display:flex;align-items:center;gap:9px}
+.wallet-badge{display:block;flex:none;width:22px;height:22px;object-fit:contain}
+.wallet-picker{position:absolute;top:calc(100% + 12px);right:0;z-index:20;width:250px;display:flex;flex-direction:column;gap:10px;background:var(--paper);border:5px solid var(--ink);box-shadow:var(--shadow);padding:18px}
+.wallet-picker-title{margin:0 0 2px;font:500 12px 'DM Mono';letter-spacing:2px}
+.wallet-picker button{width:100%;text-align:left}
+.wallet-option{display:flex;align-items:center;gap:12px;border:4px solid var(--ink);background:var(--paper);padding:12px 14px;font:700 14px 'DM Mono'}
+.wallet-option img{display:block;flex:none;width:26px;height:26px;object-fit:contain}
+.wallet-option:hover{background:var(--yellow);box-shadow:4px 4px 0 var(--ink);transform:translate(-2px,-2px)}
+.wallet-picker-cancel{border:3px solid var(--ink);background:var(--cream);padding:9px;font:500 11px 'DM Mono';letter-spacing:1px;text-align:center!important}
+.wallet-last{margin-left:auto;font:500 9px 'DM Mono';letter-spacing:1px;font-style:normal;border:2px solid var(--ink);background:var(--teal);padding:3px 5px}
+.wallet-blank{display:block;flex:none;width:24px;height:24px;border:2px solid var(--ink);background:var(--cream)}
+.wallet-picker-empty{margin:0;font:500 11px 'DM Mono';line-height:1.6;color:#555}
+
+.network-static{display:flex;align-items:center;background:var(--paper);border:4px solid var(--ink);box-shadow:4px 4px 0 var(--ink);padding:13px 17px;font-weight:700;color:var(--ink)}
+.network-wrong{display:flex;align-items:center;background:var(--orange)!important;color:var(--paper)}
+.network-wrong .dot{border-color:var(--paper)}
+.wrong-dot{background:var(--paper)}
+.network-flag{margin-left:10px;font:700 10px 'DM Mono';font-style:normal;letter-spacing:1px;border:2px solid var(--paper);padding:2px 5px}
+
+.identity-lock{display:flex;align-items:stretch;gap:0;padding:0!important;overflow:hidden;margin-left:20px}
+.identity-lock-mark{display:flex;align-items:center;border-right:4px solid var(--ink);background:var(--paper);line-height:0}
+.identity-lock-mark .identicon{height:100%;width:auto;display:block}
+.identity-lock>span:last-child{display:flex;align-items:center;padding:0 17px;letter-spacing:1px}
+
+/* Account and network read as one control: same box, one divider, but two
+   separate buttons because they do different things — the account opens the
+   wallet picker, the network switches chain. */
+.wallet-combo{position:relative;display:flex;align-items:stretch;border:4px solid var(--ink);box-shadow:4px 4px 0 var(--ink);background:var(--paper)}
+.wallet-combo>.account,.wallet-combo>.network{border:0;box-shadow:none;background:transparent;margin:0}
+.wallet-combo>.network{border-left:4px solid var(--ink);padding:13px 17px}
+.wallet-combo>.network-wrong{background:var(--orange)}

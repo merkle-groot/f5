@@ -22,6 +22,16 @@ interface IInbox {
    * @param data L2 calldata to execute on `to`
    * @return _ticketId The retryable ticket id
    */
+  /**
+   * @notice Deposit native ETH to the sender's own address on L2.
+   * @dev The dedicated ETH path, distinct from `createRetryableTicket`: it takes no calldata and
+   *      needs no gas parameters, because there is nothing to auto-redeem on the L2 side. The
+   *      credited amount is `msg.value` less the submission cost. The L2 recipient is `msg.sender`
+   *      for an EOA and the *aliased* sender for a contract, so only EOAs can self-fund with it.
+   * @return _ticketId The retryable ticket id
+   */
+  function depositEth() external payable returns (uint256 _ticketId);
+
   function createRetryableTicket(
     address to,
     uint256 l2CallValue,

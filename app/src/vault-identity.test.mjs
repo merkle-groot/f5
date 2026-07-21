@@ -8,24 +8,32 @@ const shielded = {
   V: [32345678901234567890n, 42345678901234567890n],
 };
 
-test("renders public shielded keys, recovery action, and publication rationale", () => {
+test("renders the holder address, recovery action, and publication rationale", () => {
   const html = renderVaultIdentityControls({ shielded, account: "0x1234", registered: true, busy: false });
 
   assert.match(html, /SHIELDED ADDRESS/);
-  assert.match(html, /SPENDING KEY/);
-  assert.match(html, /VIEWING KEY/);
   assert.match(html, /id="reveal-mnemonic"/);
   assert.match(html, /shielded address is published/i);
   assert.match(html, /private keys and recovery phrase stay local/i);
   assert.doesNotMatch(html, /id="register-keys"/);
-  assert.match(html, /<code>12345678…567890 · 22345678…567890<\/code>/);
-  assert.match(html, /data-copy-shielded="12345678901234567890, 22345678901234567890"/);
+  assert.match(html, /<code class="holder-address">0x1234<\/code>/);
+  assert.match(html, /data-copy-shielded="0x1234"/);
+});
+
+// Raw B and V limbs are not a handle the user can act on: senders resolve the
+// keys from the registry by L1 address, so printing them only adds noise the
+// user might mistake for something to copy around.
+test("keeps the raw Baby Jubjub limbs off the card", () => {
+  const html = renderVaultIdentityControls({ shielded, account: "0x1234", registered: true, busy: false });
+
+  assert.doesNotMatch(html, /SPENDING KEY|VIEWING KEY/);
+  assert.doesNotMatch(html, /12345678901234567890/);
 });
 
 test("places the publication explanation below the heading and makes connect actionable", () => {
   const html = renderVaultIdentityControls({ shielded, account: "", registered: null, busy: false });
   assert.match(html, /data-connect-wallet/);
-  assert.ok(html.indexOf("identity-note") < html.indexOf("shielded-key-list"));
+  assert.ok(html.indexOf("identity-note") < html.indexOf("credential-body"));
 });
 
 test("stores publication status for the exact wallet and shielded identity", () => {
@@ -53,6 +61,47 @@ test("renders publish action only for keys known to be unpublished", () => {
   assert.doesNotMatch(unknown, /id="register-keys"/);
 });
 
+// An unpublished address is not a working handle: `resolveRecipient` reads the
+// registry, so a sender given this address before publication looks up nothing.
+// The card must offer publication in that slot, not the dead address.
+test("withholds the address until it resolves, offering publication instead", () => {
+  const unpublished = renderVaultIdentityControls({ shielded, account: "0x1234", registered: false, busy: false });
+
+  assert.doesNotMatch(unpublished, /<code class="holder-address">/);
+  assert.doesNotMatch(unpublished, /data-copy-label="Address"/);
+  assert.match(unpublished, /<button id="register-keys"[^>]*class="holder-publish ?[^"]*"/);
+});
+
+// The two waits are different instructions to the user: go press a button in
+// your wallet, versus sit still while the chain confirms. Collapsing them into
+// one spinner loses the only actionable half.
+test("names each publication wait, then confirms the address resolves", () => {
+  const signing = renderVaultIdentityControls({ shielded, account: "0x1234", registered: false, busy: true, publishPhase: "signing" });
+  const confirming = renderVaultIdentityControls({ shielded, account: "0x1234", registered: false, busy: true, publishPhase: "confirming" });
+  const done = renderVaultIdentityControls({ shielded, account: "0x1234", registered: true, busy: false, publishPhase: "published" });
+
+  assert.match(signing, /class="spinner"[^>]*><\/span>CONFIRM IN YOUR WALLET/);
+  assert.match(confirming, /class="spinner"[^>]*><\/span>PUBLISHING ON L1/);
+  // Progress keeps the solid fill; the dashed disabled treatment reads as broken.
+  assert.match(signing, /class="holder-publish is-working"/);
+  assert.match(done, /✓ PUBLISHED/);
+  assert.match(done, /<code class="holder-address">0x1234<\/code>/);
+  assert.doesNotMatch(done, /id="register-keys"/);
+});
+
+// `cachedPublicationStatus` reports true for a known fingerprint even with no
+// wallet connected, so `registered` alone does not mean there is an address to
+// show. Gating on it alone rendered an empty chip beside a PUBLISHED badge.
+test("never renders an empty address chip when no wallet is connected", () => {
+  const html = renderVaultIdentityControls({ shielded, account: "", registered: true, busy: false });
+
+  assert.doesNotMatch(html, /<code class="holder-address">\s*<\/code>/);
+  assert.doesNotMatch(html, /<code class="holder-address">/);
+  assert.match(html, /No wallet connected — connect one to see your address/);
+  assert.match(html, /data-connect-wallet/);
+  assert.doesNotMatch(html, /PUBLISHED/);
+});
+
 test("disables an unpublished address action while another operation is busy", () => {
   const html = renderVaultIdentityControls({ shielded, account: "0x1234", registered: false, busy: true });
   assert.match(html, /id="register-keys"[^>]*disabled/);
@@ -68,10 +117,12 @@ test("renders the credential card as a ticket stub with an identicon fingerprint
   assert.doesNotMatch(html, /\bverifies\b|\bconfirms\b|\bproves\b|\bauthenticated\b/i);
 });
 
-test("key panels are labelled as 64-byte Baby Jubjub points, never secp256k1", () => {
+// With the key rows gone, the footer is the only place the curve is stated.
+// It has to stay: the card must never read as a secp256k1 stealth address.
+test("names the curve on the card, never secp256k1", () => {
   const html = renderVaultIdentityControls({ shielded, account: "0x1234", registered: true, busy: false });
 
-  assert.match(html, /64 bytes · Baby Jubjub/);
+  assert.match(html, /BABY JUBJUB · POSEIDON/);
   assert.doesNotMatch(html, /secp256k1/i);
 });
 
@@ -94,6 +145,9 @@ test("cannot offer to copy an address before a wallet is connected", () => {
   const html = renderVaultIdentityControls({ shielded, account: "", registered: null, busy: false });
   assert.match(html, /<button[^>]*copy-meta-address[^>]*disabled[^>]*>COPY ADDRESS</);
   assert.doesNotMatch(html, /data-copy-label="Address"/);
+  // The empty slot says what to do about it rather than rendering a bare dash.
+  assert.match(html, /holder-row is-empty/);
+  assert.match(html, /No wallet connected — connect one to see your address/);
 });
 
 test("labels the domain-separated scheme, never a bare ERC-5564 scheme index", () => {
@@ -103,12 +157,15 @@ test("labels the domain-separated scheme, never a bare ERC-5564 scheme index", (
   assert.doesNotMatch(html, /SCHEME #1/i);
 });
 
-test("badges the registry as registered, not as ERC-5564 conformant", () => {
+// The badge may claim ERC-6538 (the registry this app really does write to and
+// read from). It must never claim ERC-5564: these are Baby Jubjub keys, and a
+// conformant stealth wallet reading them as secp256k1 derives a garbage
+// address (CLAUDE.md §2).
+test("badges the registry only, never ERC-5564 conformance", () => {
   const html = renderVaultIdentityControls({ shielded, account: "0x1234", registered: true, busy: false });
 
-  assert.match(html, /ERC-6538 REGISTERED/);
-  assert.doesNotMatch(html, /ERC-6538 COMPLIANT/i);
-  assert.doesNotMatch(html, /ERC-5564 COMPLIANT/i);
+  assert.match(html, /ERC-6538 COMPLIANT/);
+  assert.doesNotMatch(html, /ERC-5564/i);
 });
 
 test("integrates identity controls through homeView rather than the shared app shell", async () => {
