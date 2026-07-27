@@ -2,7 +2,7 @@
   "name": "@f5/circuits",
   "version": "1.0.0",
   "description": "Circom circuits for the Privacy Pool protocol",
-  "repository": "https://github.com/merkle-groot/cutout",
+  "repository": "https://github.com/merkle-groot/f5",
   "license": "Apache-2.0",
   "author": "f5",
   "scripts": {

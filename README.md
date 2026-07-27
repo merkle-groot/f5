@@ -223,7 +223,7 @@ packages/
   relayer/         Express + SQLite relayer: fee quotes, proof submission
 app/               Reference UI (Vite client) + API boundary (Node server)
 assets/            README images
-ops/               Deployment check scripts and charts
+ops/               Deployment sanity-check scripts
 ```
 
 ### Key source files

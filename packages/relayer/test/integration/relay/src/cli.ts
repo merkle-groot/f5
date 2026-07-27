@@ -3,7 +3,7 @@ import minimist from 'minimist';
 import { getAddress } from 'viem';
 import { quote, request } from "./api-test.js";
 import { ChainContext } from "./chain.js";
-import { feeRecipient, PRIVATE_KEY, processooor, recipient } from "./constants.js";
+import { feeRecipient, PRIVATE_KEY, recipient } from "./constants.js";
 import { encodeFeeData, isNative } from "./util.js";
 import { SdkWrapper } from './sdk-wrapper.js';
 import { derivePublicKey, NoteService } from "@f5/privacy-pool-sdk";

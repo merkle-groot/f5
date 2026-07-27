@@ -17,6 +17,10 @@ defaults:
     working-directory: packages/contracts
 
 env:
+  # Slack allowed before the coverage gate trips, in percentage points. Referenced by
+  # the upload-coverage job; it was never defined anywhere, so the gate expanded to
+  # `$(( 87 + ))` and failed with an arithmetic syntax error.
+  COVERAGE_SENSITIVITY_PERCENT: 1
   ETHEREUM_MAINNET_RPC: ${{ secrets.ETHEREUM_MAINNET_RPC }}
   ETHEREUM_SEPOLIA_RPC: ${{ secrets.ETHEREUM_SEPOLIA_RPC }}
   GNOSIS_RPC: ${{ secrets.GNOSIS_RPC }}
@@ -186,15 +190,19 @@ jobs:
             echo "0" >> coverage.info
           fi
 
+      # `coverage.info` holds a bare integer percentage, NOT an lcov file. It used to
+      # be overwritten with lcovNew.info here, so the next run read a whole multi-line
+      # lcov trace into `old` and `[ -lt ]` died with "integer expression expected" —
+      # this job failed on every run after the first.
       - name: Compare previous coverage
         run: |
           old=$(cat coverage.info)
-          new=$(( ${{ steps.new-coverage.outputs.total-coverage }} + ${{ env.COVERAGE_SENSITIVITY_PERCENT }} ))
+          new=$(( ${{ steps.new-coverage.outputs.total-coverage }} + COVERAGE_SENSITIVITY_PERCENT ))
           if [ "$new" -lt "$old" ]; then
             echo "Coverage decreased from $old to $new"
             exit 1
           fi
-          mv lcovNew.info coverage.info
+          echo "${{ steps.new-coverage.outputs.total-coverage }}" > coverage.info
 
       - name: Upload the new coverage
         uses: actions/upload-artifact@v4

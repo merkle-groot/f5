@@ -4,7 +4,7 @@
   "description": "f5 \u2014 a single L1 privacy pool with canonical-bridge Mode-3 withdrawals to L2",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/merkle-groot/cutout.git"
+    "url": "git+https://github.com/merkle-groot/f5.git"
   },
   "license": "Apache-2.0",
   "author": "f5",
