@@ -222,7 +222,6 @@ packages/
   sdk/             TypeScript toolkit: proving, notes, scanning, relay calls
   relayer/         Express + SQLite relayer: fee quotes, proof submission
 app/               Reference UI (Vite client) + API boundary (Node server)
-circom/            Circom tooling and docs
 assets/            README images
 ops/               Deployment check scripts and charts
 ```
@@ -259,7 +258,9 @@ ops/               Deployment check scripts and charts
 
 - Node.js and Yarn (Yarn workspaces)
 - [Foundry](https://book.getfoundry.sh/) for contracts
-- `circom` + `snarkjs` for circuit work
+- [`circom`](https://github.com/iden3/circom/releases/tag/v2.2.1) **v2.2.1** + `snarkjs` for
+  circuit work. Install the released binary; CI pins the same version
+  (`.github/workflows/circuits.yml`). Do not vendor the compiler source into this repo.
 - `scarb` 2.16.1 / `starknet-foundry` 0.57.0 for the Cairo pool (pinned in
   `packages/starknet-pool/.tool-versions`)
 
