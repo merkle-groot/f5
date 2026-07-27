@@ -25,7 +25,6 @@ const RelayerCommitmentTypes = {
     { name: "asset", type: "address" },
     { name: "expiration", type: "uint256" },
     { name: "amount", type: "uint256" },
-    { name: "extraGas", type: "bool" },
   ]
 } as const;
 
@@ -88,7 +87,7 @@ export class Web3Provider implements IWeb3Provider {
 
   async signRelayerCommitment(chainId: number, commitment: Omit<FeeCommitment, 'signedRelayerCommitment'>) {
     const signer = privateKeyToAccount(getSignerPrivateKey(chainId) as Hex);
-    const { withdrawalData, expiration, extraGas, amount, asset } = commitment;
+    const { withdrawalData, expiration, amount, asset } = commitment;
     return signer.signTypedData({
       domain: domain(chainId),
       types: RelayerCommitmentTypes,
@@ -97,7 +96,6 @@ export class Web3Provider implements IWeb3Provider {
         withdrawalData,
         asset,
         amount,
-        extraGas,
         expiration: BigInt(expiration)
       }
     });
@@ -105,7 +103,7 @@ export class Web3Provider implements IWeb3Provider {
 
   async verifyRelayerCommitment(chainId: number, commitment: FeeCommitment): Promise<boolean> {
     const signer = privateKeyToAccount(getSignerPrivateKey(chainId) as Hex);
-    const { withdrawalData, asset, expiration, amount, extraGas, signedRelayerCommitment } = commitment;
+    const { withdrawalData, asset, expiration, amount, signedRelayerCommitment } = commitment;
     return verifyTypedData({
       address: signer.address,
       domain: domain(chainId),
@@ -115,7 +113,6 @@ export class Web3Provider implements IWeb3Provider {
         withdrawalData,
         asset,
         amount,
-        extraGas,
         expiration: BigInt(expiration)
       },
       signature: signedRelayerCommitment

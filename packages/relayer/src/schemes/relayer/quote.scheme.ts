@@ -11,8 +11,7 @@ const quoteSchema: JSONSchemaType<QuotetBody> = {
     destinationChainId: { type: ["string", "number"], nullable: true },
     amount: { type: ["string"], pattern: "^[0-9]+$" },
     asset: { type: ["string"], pattern: "^0x[0-9a-fA-F]{40}$" },
-    recipient: { type: ["string"], nullable: true, pattern: "^0x[0-9a-fA-F]{40}$" },
-    extraGas: { type: "boolean" }
+    recipient: { type: ["string"], nullable: true, pattern: "^0x[0-9a-fA-F]{40}$" }
   },
   required: ["chainId", "amount", "asset"],
 } as const;

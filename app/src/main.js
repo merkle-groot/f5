@@ -3601,13 +3601,10 @@ async function runSend() {
       // break — with the amount and timestamp attached. Zero leaks neither party.
       //
       // `context` still binds this field, just to zero, so the anti-tamper property is
-      // unchanged. (If the dead `extraGas` swap path is ever revived, it sweeps native
-      // to this address — it would need a real one, and per CLAUDE.md §12.5 it needs
-      // rethinking for Mode-3 regardless.)
+      // unchanged.
       recipient: "0x0000000000000000000000000000000000000000",
       ephemeralKey: preview.ephemeralKey.map(String),
       viewTag: preview.viewTag.toString(),
-      extraGas: false,
     }),
   });
   const quote = await quoteResponse.json();

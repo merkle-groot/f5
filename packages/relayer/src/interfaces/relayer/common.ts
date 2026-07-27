@@ -7,7 +7,6 @@ export interface FeeCommitment {
   asset: `0x${string}`,
   expiration: number,
   amount: bigint,
-  extraGas: boolean,
   signedRelayerCommitment: `0x${string}`,
 }
 

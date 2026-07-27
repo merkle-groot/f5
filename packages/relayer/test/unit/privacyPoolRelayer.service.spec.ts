@@ -4,7 +4,7 @@
  * with the REAL `utils` (`parseSignals`, `decode/encodeWithdrawalData`), so the
  * 10-signal `withdrawL1` layout and the `RelayData` (5-field) round-trip get
  * genuine coverage. Only the outward dependencies — config, providers (db + SDK
- * + web3 + uniswap), and the quote service — are mocked.
+ * + web3), and the quote service — are mocked.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { getAddress, Hex } from "viem";
@@ -27,7 +27,6 @@ const h = vi.hoisted(() => ({
   },
   quote: {
     quoteFeeBPSNative: vi.fn(),
-    extraGasTxCost: 320_000n,
   },
   web3: {
     getGasPrice: vi.fn(),
@@ -36,7 +35,6 @@ const h = vi.hoisted(() => ({
     client: vi.fn(),
     signRelayerCommitment: vi.fn(),
   },
-  uniswap: { swapExactInputForWeth: vi.fn() },
   config: {
     getAssetConfig: vi.fn(),
     getFeeReceiverAddress: vi.fn(),
@@ -54,8 +52,6 @@ vi.mock("../../src/providers/index.js", () => ({
   db: h.db,
   SdkProvider: vi.fn(() => h.sdk),
   web3Provider: h.web3,
-  uniswapProvider: h.uniswap,
-  UniswapProvider: vi.fn(() => h.uniswap),
 }));
 
 vi.mock("../../src/services/index.js", () => ({
@@ -270,7 +266,6 @@ describe("PrivacyPoolRelayer (Mode-3, real service)", () => {
             asset: ASSET,
             expiration: Date.now() + 60_000,
             amount: 200n, // <= withdrawnValue (5000)
-            extraGas: false,
             signedRelayerCommitment: "0x",
           },
         }),
@@ -294,7 +289,6 @@ describe("PrivacyPoolRelayer (Mode-3, real service)", () => {
             asset: ASSET,
             expiration: Date.now() + 60_000,
             amount: 200n,
-            extraGas: false,
             signedRelayerCommitment: "0x",
           },
         }),
@@ -315,7 +309,6 @@ describe("PrivacyPoolRelayer (Mode-3, real service)", () => {
             asset: ASSET,
             expiration: Date.now() - 1, // already expired
             amount: 200n,
-            extraGas: false,
             signedRelayerCommitment: "0x",
           },
         }),

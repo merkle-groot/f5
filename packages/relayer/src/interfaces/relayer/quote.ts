@@ -13,8 +13,6 @@ export interface QuotetBody {
   asset: string;
   /** Asset address */
   recipient?: string;
-  /** Extra gas flag */
-  extraGas: boolean;
 }
 
 export interface QuoteResponse {
@@ -26,7 +24,6 @@ export interface QuoteResponse {
     expiration: number,
     withdrawalData: `0x${string}`,
     amount: string,
-    extraGas: boolean,
     signedRelayerCommitment: `0x${string}`,
   };
 }
