@@ -2,7 +2,7 @@
   "name": "@f5/privacy-pool-sdk",
   "version": "1.2.0",
   "description": "TypeScript SDK for the f5 shielded pool (Mode-3 withdrawals, stealth notes, scanning)",
-  "repository": "https://github.com/0x1379/f5",
+  "repository": "https://github.com/merkle-groot/cutout",
   "license": "Apache-2.0",
   "author": "f5",
   "type": "module",
