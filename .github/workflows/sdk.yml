@@ -6,7 +6,7 @@ on:
       - "packages/sdk/**"
       - ".github/workflows/sdk.yml"
   push:
-    branches: [main, dev]
+    branches: [main]
 
 concurrency:
   group: ${{github.workflow}}-${{github.ref}}
