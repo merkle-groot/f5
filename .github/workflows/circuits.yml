@@ -43,6 +43,15 @@ jobs:
       - name: Print Circom version
         run: circom --version
 
+      # Pinned, not inherited from the runner image: `starknet` (a relayer dependency,
+      # and a workspace install resolves every workspace) declares engines.node >= 22,
+      # and yarn 1 treats an engine mismatch as a hard error rather than a warning.
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: "yarn"
+
       - name: Install dependencies
         run: yarn
 

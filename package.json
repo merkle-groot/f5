@@ -9,6 +9,9 @@
   "license": "Apache-2.0",
   "author": "f5",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "workspaces": [
     "packages/circuits",
     "packages/contracts",
