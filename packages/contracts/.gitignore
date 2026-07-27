@@ -27,3 +27,7 @@ test/invariants/fuzz/echidna_coverage
 
 # Coverage files
 lcov.info
+
+# Static-analysis output — regenerable, ~4.7 MB, no reason to track
+slither_results.json
+
