@@ -1,4 +1,4 @@
-import type { WithdrawalProof } from "@0xbow/privacy-pools-core-sdk";
+import type { WithdrawalProof } from "@f5/privacy-pool-sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DestinationRegistry } from "../../src/providers/destination/registry.js";
 import type {
@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   updateFailedRequest: vi.fn(),
 }));
 
-vi.mock("@0xbow/privacy-pools-core-sdk", () => ({
+vi.mock("@f5/privacy-pool-sdk", () => ({
   Circuits: class {},
   PrivacyPoolSDK: class {
     verifyWithdrawalL2 = mocks.verifyWithdrawalL2;

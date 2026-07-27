@@ -199,7 +199,7 @@ const state = {
 };
 
 const app = document.querySelector("#app");
-const sdk = () => import("@0xbow/privacy-pools-core-sdk");
+const sdk = () => import("@f5/privacy-pool-sdk");
 const icons = {
   mark: `<img class="brand-eye" src="/f5-logo.png" alt="" aria-hidden="true">`,
   eth: `<span class="eth">Ξ</span>`,

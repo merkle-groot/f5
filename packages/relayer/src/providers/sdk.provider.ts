@@ -11,7 +11,7 @@ import {
   WithdrawalProof,
   SDKError,
   type Hash,
-} from "@0xbow/privacy-pools-core-sdk";
+} from "@f5/privacy-pool-sdk";
 import { Address } from "viem";
 import {
   CONFIG,

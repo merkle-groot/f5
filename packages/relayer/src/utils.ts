@@ -16,7 +16,7 @@ import {
   RelayRequestBody,
   WithdrawPublicSignals,
 } from "./interfaces/relayer/request.js";
-import { WITHDRAW_L1_SIGNALS } from "@0xbow/privacy-pools-core-sdk";
+import { WITHDRAW_L1_SIGNALS } from "@f5/privacy-pool-sdk";
 import { RelayDataAbi } from "./types/abi.types.js";
 
 /**

@@ -5,7 +5,7 @@ import {
   ContractInteractionsService,
   PrivacyPoolSDK,
   WithdrawalProof,
-} from "@0xbow/privacy-pools-core-sdk";
+} from "@f5/privacy-pool-sdk";
 import { EvmDestinationConfig } from "../../config/types.js";
 import { DestinationError } from "../../exceptions/base.exception.js";
 import { createChainObject } from "../../utils.js";

@@ -10,7 +10,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { getAddress, Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { Groth16Proof } from "snarkjs";
-import { WITHDRAW_L1_SIGNALS } from "@0xbow/privacy-pools-core-sdk";
+import { WITHDRAW_L1_SIGNALS } from "@f5/privacy-pool-sdk";
 
 // Shared mutable mocks (hoisted so the vi.mock factories can close over them).
 const h = vi.hoisted(() => ({

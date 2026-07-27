@@ -1,5 +1,5 @@
 import { Account, BlockIdentifier, hash as snHash, RpcProvider } from "starknet";
-import { WithdrawalProof } from "@0xbow/privacy-pools-core-sdk";
+import { WithdrawalProof } from "@f5/privacy-pool-sdk";
 import { StarknetDestinationConfig } from "../../config/types.js";
 import { DestinationError } from "../../exceptions/base.exception.js";
 import { KeyedSerialExecutor } from "../../utils/keyedSerialExecutor.js";

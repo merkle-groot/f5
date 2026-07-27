@@ -3,7 +3,7 @@
 #
 # The SDK's Circuits class fetches "<baseUrl>artifacts/<name>.{wasm,vkey,zkey}", and the app server
 # serves /api/circuits/artifacts from the SDK's dist:
-#   app/server/index.mjs -> node_modules/@0xbow/privacy-pools-core-sdk/dist/node/artifacts/
+#   app/server/index.mjs -> node_modules/@f5/privacy-pool-sdk/dist/node/artifacts/
 #   ( that package is a symlink to packages/sdk, so the real path is the DEST below )
 # Without this staging every artifact 404s and nothing can prove.
 #

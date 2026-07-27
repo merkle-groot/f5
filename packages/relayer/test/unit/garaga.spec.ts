@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import type { WithdrawalProof } from "@0xbow/privacy-pools-core-sdk";
+import type { WithdrawalProof } from "@f5/privacy-pool-sdk";
 import { describe, expect, it } from "vitest";
 import { toGaragaCalldata } from "../../src/providers/destination/garaga.js";
 

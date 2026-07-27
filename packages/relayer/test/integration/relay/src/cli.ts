@@ -6,7 +6,7 @@ import { ChainContext } from "./chain.js";
 import { feeRecipient, PRIVATE_KEY, processooor, recipient } from "./constants.js";
 import { encodeFeeData, isNative } from "./util.js";
 import { SdkWrapper } from './sdk-wrapper.js';
-import { derivePublicKey, NoteService } from "@0xbow/privacy-pools-core-sdk";
+import { derivePublicKey, NoteService } from "@f5/privacy-pool-sdk";
 
 /**
  * The destination the note is bridged to. Mode-3 has no `processooor`: a relay

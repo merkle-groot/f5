@@ -1,7 +1,7 @@
 import {
   RelayWithdrawal,
   WithdrawalProof,
-} from "@0xbow/privacy-pools-core-sdk";
+} from "@f5/privacy-pool-sdk";
 import { FeeCommitment } from "./common.js";
 
 /**

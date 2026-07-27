@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { encodeAbiParameters } from "viem";
-import { generateMerkleProof } from "@0xbow/privacy-pools-core-sdk";
+import { generateMerkleProof } from "@f5/privacy-pool-sdk";
 import fs from "fs";
 
 // Get CSV file path and leaf from command-line arguments

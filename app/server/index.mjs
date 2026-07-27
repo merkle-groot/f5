@@ -35,7 +35,7 @@ app.use(
   "/api/circuits/artifacts",
   express.static(
     fileURLToPath(
-      new URL("../../node_modules/@0xbow/privacy-pools-core-sdk/dist/node/artifacts/", import.meta.url),
+      new URL("../../node_modules/@f5/privacy-pool-sdk/dist/node/artifacts/", import.meta.url),
     ),
   ),
 );

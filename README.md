@@ -296,7 +296,7 @@ sender can never hold the recipient's private keys.
 cp packages/relayer/config.sepolia.example.json /private/path/config.sepolia.json
 # fill in the deployed Entrypoint, fee receiver, and relayer key
 CONFIG_PATH=/private/path/config.sepolia.json PORT=8788 \
-  yarn workspace @privacy-pool-core/relayer build:start
+  yarn workspace @f5/relayer build:start
 ```
 
 The app proxies `/api/relayer/quote` and `/api/relayer/request` to it. The app's own `/api/relay`
@@ -306,18 +306,18 @@ route is an SDK-backed fallback and **must never be exposed without a server-sid
 
 ```bash
 # circuits
-yarn workspace @privacy-pool-core/circuits compile
-yarn workspace @privacy-pool-core/circuits setup:all      # ptau + zkeys
-yarn workspace @privacy-pool-core/circuits test
+yarn workspace @f5/circuits compile
+yarn workspace @f5/circuits setup:all      # ptau + zkeys
+yarn workspace @f5/circuits test
 
 # contracts
-yarn workspace @privacy-pool-core/contracts build
-yarn workspace @privacy-pool-core/contracts test:unit
-yarn workspace @privacy-pool-core/contracts test:integration
+yarn workspace @f5/contracts build
+yarn workspace @f5/contracts test:unit
+yarn workspace @f5/contracts test:integration
 
 # sdk / relayer
-yarn workspace @0xbow/privacy-pools-core-sdk test
-yarn workspace @privacy-pool-core/relayer test
+yarn workspace @f5/privacy-pool-sdk test
+yarn workspace @f5/relayer test
 
 # app
 yarn --cwd app test:server

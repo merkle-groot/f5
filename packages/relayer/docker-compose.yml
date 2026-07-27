@@ -1,14 +1,22 @@
+# Run from the REPO ROOT:
+#   docker compose -f packages/relayer/docker-compose.yml up
+#
+# The build context is the repo root because the relayer depends on the
+# @f5/privacy-pool-sdk workspace, which is published nowhere. See the Dockerfile.
 services:
   relayer:
     network_mode: host
     user: 1000:1000
     build:
-      context: .
-      dockerfile: ./Dockerfile
+      context: ../..
+      dockerfile: ./packages/relayer/Dockerfile
     volumes:
       - /tmp/pp_relayer.sqlite:/pp_relayer.sqlite
-      - ./config.example.json:/build/config.json
-      - ../circuits/artifacts:/build/node_modules/@0xbow/privacy-pools-core-sdk/dist/node/artifacts
+      - ./config.example.json:/build/packages/relayer/config.json
+      # Proving artifacts are not built inside the image (that needs circom plus a
+      # powers-of-tau ceremony), so mount them from the host. Without this the
+      # relayer starts but cannot verify proofs.
+      - ../circuits/artifacts:/build/packages/sdk/dist/node/artifacts
     environment:
       - CHAIN_31337_RPC_URL
       - CHAIN_11155111_RPC_URL

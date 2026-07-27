@@ -5,7 +5,7 @@ import {
   getCommitment,
   derivePublicKey,
   computeSharedSecretX,
-} from "@0xbow/privacy-pools-core-sdk";
+} from "@f5/privacy-pool-sdk";
 import { encodeAbiParameters, decodeAbiParameters } from "viem";
 
 // Fixed Mode-3 stealth vectors (same family as the circuits e2e run). The L1

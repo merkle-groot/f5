@@ -1,4 +1,4 @@
-import { Circuits, PrivacyPoolSDK, WithdrawalProof } from "@0xbow/privacy-pools-core-sdk";
+import { Circuits, PrivacyPoolSDK, WithdrawalProof } from "@f5/privacy-pool-sdk";
 import { DestinationError, RelayerError, ZkError } from "../exceptions/base.exception.js";
 import { db } from "../providers/index.js";
 import { checkActivation } from "../providers/destination/backing.js";

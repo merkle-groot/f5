@@ -1,4 +1,4 @@
-import { WithdrawalProof } from "@0xbow/privacy-pools-core-sdk";
+import { WithdrawalProof } from "@f5/privacy-pool-sdk";
 
 /**
  * An EVM destination withdrawal: the `Withdrawal{processooor,data}` struct the L2
