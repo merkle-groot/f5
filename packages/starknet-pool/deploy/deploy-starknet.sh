@@ -38,6 +38,21 @@ fi
 : "${SN_ASSET_ADDRESS:?set SN_ASSET_ADDRESS (L2 ERC20 felt)}"
 : "${SN_TOKEN_BRIDGE_ADDRESS:?set SN_TOKEN_BRIDGE_ADDRESS (StarkGate L2 token bridge felt)}"
 MAX_BPS="${SN_MAX_RELAY_FEE_BPS:-100}"
+VKEY="$ROOT/../circuits/build/withdrawL2/groth16_vkey.json"
+CONSTANTS="$ROOT/src/groth16_verifier_constants.cairo"
+
+# Refuse to compile or deploy a verifier generated from an older proving key.
+# This is deliberately before `scarb build`: a stale Garaga file compiles cleanly
+# and otherwise only reveals itself as InvalidProof after an irreversible deploy.
+echo "== verify Cairo constants against latest withdrawL2 vkey =="
+python3 "$ROOT/../../ops/check-starknet-vkey.py" \
+  --vkey "$VKEY" \
+  --constants "$CONSTANTS"
+VKEY_SHA256=$(python3 - "$VKEY" <<'PY'
+import hashlib, sys
+print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())
+PY
+)
 
 # `--json` is a GLOBAL sncast flag (it must precede the subcommand); passing it after
 # `declare`/`deploy` fails with "unexpected argument '--json' found" on sncast >= 0.5x.
@@ -60,6 +75,28 @@ sys.exit(0 if "result" in reply else 1)
 PY
 }
 
+# A successful declare transaction can return before the class is visible at
+# `latest`. sncast deploy simulates against `latest`, so deploying immediately
+# races finality and fails with "Class ... is not declared". Wait for the exact
+# class hash instead of guessing with a fixed sleep.
+wait_for_class_declared() {
+  local _hash="$1" _attempt=1 _max_attempts=60 _status
+  while [ "$_attempt" -le "$_max_attempts" ]; do
+    if class_is_declared "$_hash"; then
+      return 0
+    else
+      _status=$?
+    fi
+    if [ "$_status" = 2 ]; then
+      echo "   could not query class $_hash while waiting for declaration" >&2
+    fi
+    sleep 2
+    _attempt=$((_attempt + 1))
+  done
+  echo "   class $_hash was not visible at latest after $((_max_attempts * 2)) seconds" >&2
+  return 1
+}
+
 # Declare a contract and echo its class hash.
 #
 # A class hash is derived from the contract's CONTENT, so whenever the Cairo is unchanged the class
@@ -70,22 +107,40 @@ PY
 # not. Skipping also dodges flaky public-RPC declare paths, which is why we check rather than
 # "try and catch the error".
 declare_class() {
-  local _name="$1" _hash _out
+  local _name="$1" _hash _out _status
   _hash=$("${SNCAST[@]}" utils class-hash --contract-name "$_name" | jqf class_hash)
 
   if class_is_declared "$_hash"; then
     echo "   $_name: class already declared, reusing $_hash" >&2
     printf '%s' "$_hash"
     return 0
+  else
+    _status=$?
+  fi
+  if [ "$_status" = 2 ]; then
+    echo "could not check whether $_name class $_hash is declared" >&2
+    exit 1
   fi
 
   echo "   $_name: declaring $_hash" >&2
-  _out=$("${SNCAST[@]}" declare --url "$SN_RPC" --contract-name "$_name" 2>&1 || true)
-  if printf '%s' "$_out" | grep -q '"error"' && ! printf '%s' "$_out" | grep -qi 'already declared'; then
+  if ! _out=$("${SNCAST[@]}" declare --url "$SN_RPC" --contract-name "$_name" 2>&1); then
+    if printf '%s' "$_out" | grep -qi 'already declared'; then
+      wait_for_class_declared "$_hash" || exit 1
+      printf '%s' "$_hash"
+      return 0
+    fi
     echo "declare failed for $_name:" >&2
     printf '%s\n' "$_out" >&2
     exit 1
   fi
+
+  echo "   $_name: declaration submitted; waiting until visible at latest" >&2
+  if ! wait_for_class_declared "$_hash"; then
+    echo "declare response for $_name:" >&2
+    printf '%s\n' "$_out" >&2
+    exit 1
+  fi
+  echo "   $_name: declaration confirmed" >&2
   printf '%s' "$_hash"
 }
 
@@ -109,11 +164,11 @@ SCOPE=$("${SNCAST[@]}" call --url "$SN_RPC" --contract-address "$P_ADDR" --funct
 
 mkdir -p deployments
 OUT="deployments/starknet-${CHAIN_ID}.json"
-python3 - "$OUT" "$CHAIN_ID" "$V_ADDR" "$P_ADDR" "$SN_ASSET_ADDRESS" "$SN_TOKEN_BRIDGE_ADDRESS" "$L1_POOL_ADDRESS" "$V_CLASS" "$P_CLASS" <<'PY'
+python3 - "$OUT" "$CHAIN_ID" "$V_ADDR" "$P_ADDR" "$SN_ASSET_ADDRESS" "$SN_TOKEN_BRIDGE_ADDRESS" "$L1_POOL_ADDRESS" "$V_CLASS" "$P_CLASS" "$VKEY_SHA256" <<'PY'
 import json,sys
-out,chain,v,p,asset,token_bridge,l1,vc,pc=sys.argv[1:10]
+out,chain,v,p,asset,token_bridge,l1,vc,pc,vkey_sha256=sys.argv[1:11]
 json.dump({"chainId":chain,"contracts":[
- {"name":"Groth16VerifierBN254","address":v,"classHash":vc},
+ {"name":"Groth16VerifierBN254","address":v,"classHash":vc,"vkeySha256":vkey_sha256},
  {"name":"StarknetPrivacyPool","address":p,"classHash":pc,"asset":asset,"tokenBridge":token_bridge,"l1Pool":l1},
 ]}, open(out,"w"), indent=2)
 print("wrote",out)

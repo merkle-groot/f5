@@ -37,6 +37,22 @@ const mockAssetAddress: Address = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const mockTransactionHash =
   "0x8b52f966d7ec360050ccea1c2c13c4f6b42f826da16c118e43a4ad4950261e91";
 
+/**
+ * What `getBridgeConfig` decodes to for an OP-Stack destination. viem returns the
+ * solidity struct as an object (the ABI names the tuple's components), and
+ * `BridgeKind.OpStack = 0` carries no prepaid L1->L2 fee — so `msg.value` is 0.
+ */
+const mockOpStackBridgeConfig = {
+  kind: 0,
+  isSupported: true,
+  messageGasLimit: 0n,
+  messageMaxFeePerGas: 0n,
+  messageFee: 0n,
+  tokenGasLimit: 0n,
+  tokenMaxFeePerGas: 0n,
+  tokenFee: 0n,
+};
+
 // Mock withdrawal and proof
 const mockWithdrawal: Withdrawal = {
   processooor: "0xProcessorAddress",
@@ -173,10 +189,13 @@ describe("ContractInteractionsService", () => {
   });
 
   it("should withdraw successfully", async () => {
-    // getScopeData mock
+    // getScopeData mock, then the getBridgeConfig read `relay` makes to price the
+    // L1->L2 message. Omitting the third read left `config` undefined and the
+    // withdrawal failed on `config.isSupported` before it ever reached simulate.
     mockPublicClient.readContract
       .mockResolvedValueOnce(mockPoolAddress)
-      .mockResolvedValueOnce(mockAssetAddress);
+      .mockResolvedValueOnce(mockAssetAddress)
+      .mockResolvedValueOnce(mockOpStackBridgeConfig);
 
     mockPublicClient.simulateContract.mockResolvedValue({
       request: "mockRequest",
@@ -193,10 +212,11 @@ describe("ContractInteractionsService", () => {
   });
 
   it("should fail to withdraw", async () => {
-    // getScopeData mock
+    // getScopeData mock, then getBridgeConfig — see the success case above.
     mockPublicClient.readContract
       .mockResolvedValueOnce(mockPoolAddress)
-      .mockResolvedValueOnce(mockAssetAddress);
+      .mockResolvedValueOnce(mockAssetAddress)
+      .mockResolvedValueOnce(mockOpStackBridgeConfig);
 
     mockPublicClient.simulateContract.mockRejectedValue(
       new Error("Withdraw failed"),

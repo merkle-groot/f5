@@ -1,4 +1,5 @@
 import { Address } from "viem";
+import { ValidationError } from "../exceptions/base.exception.js";
 import { quoteProvider, web3Provider } from "../providers/index.js";
 
 interface QuoteFeeBPSParams {
@@ -42,6 +43,15 @@ export class QuoteService {
   }
 
   async netFeeBPSNative(baseFee: bigint, balance: bigint, nativeQuote: { num: bigint, den: bigint; }, gasPrice: bigint, extraGasUnits: bigint, bridgeFeeWei: bigint = 0n): Promise<bigint> {
+    // `balance` is the withdrawn amount the costs are spread over, and it divides
+    // below. A zero (or negative) amount is a malformed request, and letting it
+    // through raises a bare `RangeError: Division by zero` that surfaces as a 500
+    // rather than the validation failure it actually is.
+    if (balance <= 0n) {
+      throw ValidationError.invalidInput({
+        message: `Cannot quote a relay fee for a non-positive amount (got ${balance}).`,
+      });
+    }
     const totalGasUnits = this.relayTxCost + extraGasUnits;
     // The fronted L1->L2 bridge fee is already a native amount; add it alongside gas costs.
     const nativeCosts = (1n * gasPrice * totalGasUnits) + bridgeFeeWei;

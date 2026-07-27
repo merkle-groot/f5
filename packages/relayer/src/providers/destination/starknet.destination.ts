@@ -1,4 +1,4 @@
-import { Account, hash as snHash, RpcProvider } from "starknet";
+import { Account, BlockIdentifier, hash as snHash, RpcProvider } from "starknet";
 import { WithdrawalProof } from "@0xbow/privacy-pools-core-sdk";
 import { StarknetDestinationConfig } from "../../config/types.js";
 import { DestinationError } from "../../exceptions/base.exception.js";
@@ -104,9 +104,15 @@ export class StarknetDestinationProvider implements DestinationProvider {
     return `starknet:${this.chainId}:${this.config.relayer_address.toLowerCase()}`;
   }
 
-  async activateNote(commitment: bigint): Promise<DestinationTransaction> {
+  async activateNote(
+    commitment: bigint,
+    verify?: () => Promise<void>,
+  ): Promise<DestinationTransaction> {
     const account = this.requireAccount();
     return this.queue.run(this.queueKey(), async () => {
+      // Inside the queue, for the same reason as the EVM provider: see
+      // `DestinationProvider.activateNote`.
+      await verify?.();
       const submitted = await account.execute({
         contractAddress: this.poolAddress,
         entrypoint: "activate_note",
@@ -162,21 +168,27 @@ export class StarknetDestinationProvider implements DestinationProvider {
    * technique the app server already uses for `l1_pool`. A u256 occupies two
    * consecutive felts (low, high).
    *
-   * Pinned to `latest`, not the default `pending`: the three reads must agree on a
-   * block or the backing arithmetic mixes states, and some nodes (Alchemy v0.10)
-   * reject `pending` outright with -32602 (FIXES.md).
+   * Never `pending`: some nodes (Alchemy v0.10) reject it outright with -32602
+   * (FIXES.md). And never the `latest` TAG for the individual reads either — that is
+   * re-resolved per request, so four parallel calls can straddle a new block and
+   * combine a pre-activation supply with a post-activation pending value, producing a
+   * backing answer that was never true at any block. The block number is resolved
+   * ONCE here and every read is pinned to it, which is what the EVM provider gets for
+   * free from Multicall3.
    */
   async activationState(commitment: bigint): Promise<ActivationState> {
     const supplySlot = BigInt(
       `0x${snHash.starknetKeccak("activated_supply").toString(16)}`,
     );
 
+    const block = await this.latestBlockNumber();
+
     const [pendingParts, tokenParts, supplyLow, supplyHigh] = await Promise.all(
       [
-        this.call("pending_value", toU256(commitment)),
-        this.call("tokens_received_from_bridge", []),
-        this.storageAt(supplySlot),
-        this.storageAt(supplySlot + 1n),
+        this.call("pending_value", toU256(commitment), block),
+        this.call("tokens_received_from_bridge", [], block),
+        this.storageAt(supplySlot, block),
+        this.storageAt(supplySlot + 1n, block),
       ],
     );
 
@@ -187,7 +199,20 @@ export class StarknetDestinationProvider implements DestinationProvider {
     };
   }
 
-  private call(entrypoint: string, calldata: string[]): Promise<string[]> {
+  /** The block every read in one `activationState` is pinned to. */
+  private latestBlockNumber(): Promise<number> {
+    return rpcThrottle.call(this.config.rpc_url, () =>
+      retryRpc(() => this.provider.getBlockLatestAccepted()).then(
+        (block) => block.block_number,
+      ),
+    );
+  }
+
+  private call(
+    entrypoint: string,
+    calldata: string[],
+    blockIdentifier: BlockIdentifier = "latest",
+  ): Promise<string[]> {
     return rpcThrottle.call(this.config.rpc_url, () =>
       retryRpc(() =>
         this.provider.callContract(
@@ -196,19 +221,22 @@ export class StarknetDestinationProvider implements DestinationProvider {
             entrypoint,
             calldata,
           },
-          "latest",
+          blockIdentifier,
         ),
       ),
     );
   }
 
-  private async storageAt(slot: bigint): Promise<string> {
+  private async storageAt(
+    slot: bigint,
+    blockIdentifier: BlockIdentifier = "latest",
+  ): Promise<string> {
     const result = await rpcThrottle.call(this.config.rpc_url, () =>
       retryRpc(() =>
         this.provider.getStorageAt(
           this.poolAddress,
           `0x${slot.toString(16)}`,
-          "latest",
+          blockIdentifier,
         ),
       ),
     );

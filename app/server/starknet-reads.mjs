@@ -35,7 +35,8 @@ export function getStarknetProvider(config = getStarknetConfig()) {
 const eventIndex = new StarknetEventIndex({ retry: withRetry, reorgBuffer: 16 });
 const NOTE_RECEIVED = "NoteReceived";
 const NOTE_ACTIVATED = "NoteActivated";
-const noteLifecycleNames = [NOTE_RECEIVED, NOTE_ACTIVATED];
+const WITHDRAWN = "Withdrawn";
+const noteLifecycleNames = [NOTE_RECEIVED, NOTE_ACTIVATED, WITHDRAWN];
 const noteLifecycleSelectors = noteLifecycleNames.map((name) => snHash.getSelectorFromName(name));
 
 /** Call a Cairo entrypoint that returns a single `u256`. */
@@ -96,10 +97,6 @@ export function getPendingValue(provider, config, commitment) {
   return callU256(provider, config, "pending_value", toU256(commitment));
 }
 
-export function getTokensReceived(provider, config) {
-  return callU256(provider, config, "tokens_received_from_bridge");
-}
-
 /**
  * Read a Cairo pool event across all pages.
  *
@@ -121,7 +118,7 @@ export async function getEvents(provider, config, eventName) {
   }));
 }
 
-/** Read and partition both destination note lifecycle events with one selector filter. */
+/** Read and partition all three destination note lifecycle events with one selector filter. */
 export async function getNoteLifecycleEvents(provider, config) {
   const events = await eventIndex.read({
     rpcUrl: config.rpcUrl,
@@ -133,15 +130,25 @@ export async function getNoteLifecycleEvents(provider, config) {
   });
   const received = [];
   const activated = [];
+  const spent = [];
   for (const event of events) {
+    const selector = BigInt(event.keys[0]);
+    if (selector === BigInt(noteLifecycleSelectors[2])) {
+      // Withdrawn has a different layout from the other two: only `recipient` is
+      // `#[key]`-tagged, so the nullifier hash is the FIRST u256 in `data`.
+      spent.push({
+        spentNullifier: fromU256(event.data[0], event.data[1]),
+        value: fromU256(event.data[2], event.data[3]),
+      });
+      continue;
+    }
     const parsed = {
       commitment: fromU256(event.keys[1], event.keys[2]),
       value: fromU256(event.data[0], event.data[1]),
     };
-    const selector = BigInt(event.keys[0]);
     if (selector === BigInt(noteLifecycleSelectors[0])) received.push(parsed);
     else if (selector === BigInt(noteLifecycleSelectors[1])) activated.push(parsed);
     else throw new Error(`Unexpected Starknet note lifecycle selector ${event.keys[0]}`);
   }
-  return { received, activated };
+  return { received, activated, spent };
 }

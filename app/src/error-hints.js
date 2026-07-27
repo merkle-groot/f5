@@ -8,7 +8,7 @@
  */
 export const ERROR_HINTS = [
   [/invalidproof|proof.*revert|revert.*proof/i,
-    "The deployed verifier does not match the proving keys this app is using. Run `yarn check:deployment` — if it reports a key mismatch, the pool needs redeploying against the current vkey."],
+    "Proof verification is temporarily unavailable because this deployment is out of date. Please try again later."],
   [/fetchartifact|artifacts?\/|\.vkey|\.zkey|\.wasm/i,
     "Circuit artifacts are missing from the SDK bundle. Run `yarn circuits:copy` in packages/sdk."],
   [/nullifieralreadyspent|already been spent/i,
@@ -18,10 +18,9 @@ export const ERROR_HINTS = [
   [/insufficient|balance/i,
     "Top up the connected account, or use MAX to fit the deposit to the balance."],
   [/failed to fetch|networkerror|econnrefused|configuration/i,
-    "The F5 API is not reachable. Check that the server on :8787 is running."],
+    "The f5 API is not reachable. Check that the server on :8787 is running."],
 ];
 
 export function errorHint(message) {
   return ERROR_HINTS.find(([pattern]) => pattern.test(String(message ?? "")))?.[1] ?? "";
 }
-

@@ -80,19 +80,32 @@ export class PrivacyPoolRelayer {
       }
 
       const response = await this.broadcastWithdrawal(req, chainId);
-      // const response = { hash: "0x" }
 
-      let txSwap;
-      if (extraGas) {
-        txSwap = await this.swapForNativeAndFund(req.scope, req.withdrawal, req.proof, chainId, response.hash);
-      }
-
+      // Record the broadcast BEFORE the optional gas swap. Past this line the
+      // withdrawal is irreversibly on-chain, so it must never be reported — or
+      // stored — as a failure. Doing the swap first meant a failing swap threw into
+      // the catch below, which marked the request FAILED and dropped the tx hash
+      // entirely: the user was told their withdrawal had failed while it settled.
       await this.db.updateBroadcastedRequest(requestId, response.hash);
+
+      let txSwap: string | undefined;
+      let swapError: string | undefined;
+      if (extraGas) {
+        try {
+          txSwap = await this.swapForNativeAndFund(req.scope, req.withdrawal, req.proof, chainId, response.hash);
+        } catch (error) {
+          // The withdrawal succeeded; only the native-gas top-up did not. Report it
+          // alongside the hash so the caller can retry the funding, not the relay.
+          swapError = error instanceof RelayerError ? error.toPrettyString() : String(error);
+          console.error(`[relayer] extraGas swap failed for ${response.hash}:`, error);
+        }
+      }
 
       return {
         success: true,
         txHash: response.hash,
         txSwap,
+        ...(swapError ? { error: swapError } : {}),
         timestamp,
         requestId,
       };
@@ -333,7 +346,7 @@ export class PrivacyPoolRelayer {
 
       if (relayFeeBPS < currentFeeBPS.feeBPS) {
         throw WithdrawalValidationError.feeTooLow(
-          `Relay fee too low: expected at least "${currentFeeBPS}", got "${relayFeeBPS}".`,
+          `Relay fee too low: expected at least "${currentFeeBPS.feeBPS}", got "${relayFeeBPS}".`,
         );
       }
 

@@ -50,7 +50,7 @@ miscRouter.get("/quote", (_req, res) => {
     feeBps: feeBps / 100,
     feeLabel: `${feeBps / 100}%`,
     gasCovered: true,
-    relayer: process.env.RELAYER_NAME ?? "F5",
+    relayer: process.env.RELAYER_NAME ?? "f5",
   });
 });
 

@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
-  <title id="title">F5 shielded eye</title>
+  <title id="title">f5 shielded eye</title>
   <desc id="desc">Five broken concentric bands around a protected center.</desc>
   <rect width="64" height="64" rx="10" fill="#101010"/>
   <g fill="none" stroke="#fffdf8" stroke-width="3.5" stroke-linecap="butt">

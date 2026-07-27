@@ -61,8 +61,20 @@ export interface DestinationProvider {
   /** The address that signs writes, or null when no key is configured. */
   signerAddress(): string | null;
 
-  /** Promote a bridged pending note to spendable. */
-  activateNote(commitment: bigint): Promise<DestinationTransaction>;
+  /**
+   * Promote a bridged pending note to spendable.
+   *
+   * `verify` runs INSIDE the per-signer queue, immediately before the transaction is
+   * built. That placement is the point: writes to one signer are serialized, so a
+   * backing check made before entering the queue can be invalidated by an activation
+   * that is already queued ahead of this one. Both would read the same
+   * `tokensReceivedFromBridge`, both would decide they fit, and the second would
+   * revert on-chain. Re-reading here sees the earlier activation's effect.
+   */
+  activateNote(
+    commitment: bigint,
+    verify?: () => Promise<void>,
+  ): Promise<DestinationTransaction>;
 
   /** Spend an activated note out of the pool. */
   withdraw(

@@ -70,6 +70,27 @@ test("passes multiple event signatures through one cached log stream", async () 
   assert.equal("event" in requests[0], false);
 });
 
+test("a per-read chunk width overrides the index default", async () => {
+  const runtime = makeRuntime({ head: 30n });
+  const index = new EventIndex({ runtime, chunkBlocks: 5n });
+
+  await index.read({ ...params, chunkBlocks: 20n });
+  assert.deepEqual(runtime.calls, [[10n, 30n]]);
+
+  // A second stream on the same index falls back to the default when it passes none.
+  await index.read({ ...params, eventKey: "Other" });
+  assert.deepEqual(runtime.calls.slice(1), [[10n, 15n], [16n, 21n], [22n, 27n], [28n, 30n]]);
+});
+
+test("ignores a non-positive chunk width rather than looping forever", async () => {
+  for (const width of [0n, -5n]) {
+    const runtime = makeRuntime({ head: 20n });
+    const index = new EventIndex({ runtime, chunkBlocks: 10n });
+    await index.read({ ...params, chunkBlocks: width });
+    assert.deepEqual(runtime.calls, [[10n, 20n]]);
+  }
+});
+
 test("rolls back and replaces logs in the reorg window", async () => {
   const runtime = makeRuntime({ dataset: [
     { blockNumber: 11n, transactionHash: "0xa", logIndex: 0 },

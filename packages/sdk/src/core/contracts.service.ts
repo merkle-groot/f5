@@ -5,6 +5,7 @@ import {
   Chain,
   Hex,
   PublicClient,
+  SimulateContractReturnType,
   WalletClient,
   createPublicClient,
   createWalletClient,
@@ -269,6 +270,15 @@ export class ContractInteractionsService implements ContractInteractions {
     };
 
     // Let the pool revert with its own `UnsupportedChain` rather than guessing.
+    // The null check is not redundant: a stale ABI or a node that answers with a
+    // tuple instead of the named struct yields `undefined` here, and reading
+    // `.isSupported` off it raises a bare TypeError several frames from the cause.
+    if (!config) {
+      throw ContractError.bridgeConfigNotFound(
+        destinationChainId,
+        assetAddress,
+      );
+    }
     if (!config.isSupported) return 0n;
 
     const isNative =
@@ -624,9 +634,26 @@ export class ContractInteractionsService implements ContractInteractions {
     };
   }
 
-  private async executeTransaction(request: any): Promise<TransactionResponse> {
+  /**
+   * Broadcast a request produced by `simulateContract`.
+   *
+   * `SimulateContractReturnType["request"]` rather than `any`: every caller passes a
+   * simulated request, and each carries its own ABI-derived generic. Naming the
+   * producer's type is what they have in common — `writeContract`'s own parameter
+   * union is narrower than what `simulateContract` actually returns and rejects them.
+   */
+  private async executeTransaction(
+    request: SimulateContractReturnType["request"],
+  ): Promise<TransactionResponse> {
     try {
-      const hash = await this.walletClient.writeContract(request);
+      // The one unavoidable cast. `simulateContract` and `writeContract` erase their
+      // ABI generics differently, so viem cannot see that a simulated request is
+      // exactly what `writeContract` takes — which is the whole contract of
+      // simulate-then-write. Confining it here keeps all seven call sites checked;
+      // the previous `request: any` checked none of them.
+      const hash = await this.walletClient.writeContract(
+        request as Parameters<WalletClient["writeContract"]>[0],
+      );
       return {
         hash,
         wait: async () => {

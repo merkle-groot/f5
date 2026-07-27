@@ -207,3 +207,35 @@ test("shows a recipient mark only for a looked-up user, on the right edge of the
   // The mark lives inside the recipient address field, not as a standalone card.
   assert.match(sendViewSource, /<div class="input-with-mark">[\s\S]*id="send-recipient"[\s\S]*sendFingerprint\(send, recipientMode\)[\s\S]*<\/div>/);
 });
+
+test("shows L1 change and pending self-bridge notes with a restart action", async () => {
+  const source = await readFile(new URL("./main.js", import.meta.url), "utf8");
+  const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end));
+  const bindSource = section("function bind()", "function selectL2Note(");
+  const resultSource = section("function bridgeResultCard(", "function sendFingerprint(");
+  const sendViewSource = section("function sendView()", "function receiveView()");
+
+  assert.match(bindSource, /#bridge-another-note/);
+  assert.match(bindSource, /state\.send\.draft = null/);
+  assert.match(sendViewSource, /BRIDGE ANOTHER NOTE/);
+  assert.match(sendViewSource, /bridgeResultCard\(draft\)/);
+  assert.match(resultSource, /L1<\/span> CHANGE NOTE/);
+  assert.match(resultSource, /L2<\/span> DESTINATION NOTE/);
+  assert.match(resultSource, /pill\("ready"\)/);
+  assert.match(resultSource, /pill\("pending"\)/);
+});
+
+test("shows only snapshot-verified L1 notes in the bridge picker", async () => {
+  const source = await readFile(new URL("./main.js", import.meta.url), "utf8");
+  const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end));
+  const reconcileSource = section("async function reconcileSpentNotes(", "async function refreshRagequitEligibility(");
+  const sendViewSource = section("function sendView()", "function receiveView()");
+  const refreshSource = section("async function refreshInFlightRoutes()", "async function fetchIndex(");
+
+  assert.match(sendViewSource, /state\.l1NoteStatus === "verified"/);
+  assert.match(sendViewSource, /NOTE STATUS UNAVAILABLE/);
+  assert.match(reconcileSource, /snapshot\.nullifiers\.has/);
+  assert.match(reconcileSource, /snapshot\.ragequitCommitments\.has/);
+  assert.match(reconcileSource, /if \(required\) throw/);
+  assert.match(refreshSource, /await reconcileSpentNotes\(\)/);
+});

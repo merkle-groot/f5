@@ -80,28 +80,32 @@ export class DestinationService {
     // reason (a misleading 502 "fetch failed" in place of a 503 "no signer").
     this.requireSigner(provider);
 
-    return this.record(`${provider.key}:activate`, { commitment }, async () => {
-      // Re-verified against fresh chain state. The app server nominates candidates by
-      // scanning, but its view can be stale by the time this lands, and it is not the
-      // component that pays for a revert.
-      const state = await provider.activationState(commitment);
-      const refusal = checkActivation(state);
+    return this.record(`${provider.key}:activate`, { commitment }, async () =>
+      // The check is handed to the provider rather than run here so it executes
+      // inside the per-signer queue, immediately before the transaction is built.
+      // Run out here it would race: two activations nominated against the same
+      // backing would both pass, then serialize, and the second would revert.
+      provider.activateNote(commitment, async () => {
+        // Re-verified against fresh chain state. The app server nominates candidates
+        // by scanning, but its view can be stale by the time this lands, and it is
+        // not the component that pays for a revert.
+        const state = await provider.activationState(commitment);
+        const refusal = checkActivation(state);
 
-      if (refusal === "not-pending") {
-        throw DestinationError.unbackedActivation(
-          `Note ${commitment} is not pending on ${provider.chainName}: it was never received, ` +
-            `or it is already activated.`,
-        );
-      }
-      if (refusal === "unbacked") {
-        throw DestinationError.unbackedActivation(
-          `Note ${commitment} (value ${state.pendingValue}) is not yet backed by bridged tokens ` +
-            `on ${provider.chainName}. Activated ${state.activatedSupply} of ${state.tokensReceived} received.`,
-        );
-      }
-
-      return provider.activateNote(commitment);
-    });
+        if (refusal === "not-pending") {
+          throw DestinationError.unbackedActivation(
+            `Note ${commitment} is not pending on ${provider.chainName}: it was never received, ` +
+              `or it is already activated.`,
+          );
+        }
+        if (refusal === "unbacked") {
+          throw DestinationError.unbackedActivation(
+            `Note ${commitment} (value ${state.pendingValue}) is not yet backed by bridged tokens ` +
+              `on ${provider.chainName}. Activated ${state.activatedSupply} of ${state.tokensReceived} received.`,
+          );
+        }
+      }),
+    );
   }
 
   /** Spend an activated note. The proof is verified before any gas is spent. */

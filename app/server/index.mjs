@@ -21,6 +21,7 @@ import express from "express";
 import { fileURLToPath } from "node:url";
 import { port } from "./config.mjs";
 import { automaticNoteActivator } from "./activator.mjs";
+import { l1SpendSnapshot } from "./l1-spend-snapshot.mjs";
 import { l1Router } from "./routes/l1.mjs";
 import { l2Router } from "./routes/l2.mjs";
 import { miscRouter } from "./routes/misc.mjs";
@@ -45,6 +46,7 @@ app.use("/api/l2", l2Router);
 app.use("/api/starknet", starknetRouter);
 
 app.listen(port(), () => {
-  console.log(`F5 API listening on :${port()}`);
+  console.log(`f5 API listening on :${port()}`);
+  l1SpendSnapshot.start();
   automaticNoteActivator.start();
 });

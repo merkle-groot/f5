@@ -28,6 +28,8 @@ import { MAX_DECIMALS, amountAfterEdit, isAcceptableAmount, truncateAmount } fro
 import { atLeastCohort, trimBenefit } from "./anonymity-set.js";
 import { SPENT_STATUS, largestFirst, matchingNotes, newestFirst, spentLast } from "./note-order.js";
 import { nextWithdrawalIndex, recoverChangeNotes } from "./change-notes.js";
+import { deriveL2Status as deriveNoteStatus, spentNullifierSet } from "./l2-status.js";
+import { STARKNET_STATUS_RETRIES, starknetRetryDelayMs, starknetStatusUnsettled } from "./starknet-status.js";
 import { errorHint } from "./error-hints.js";
 import { prove } from "./prove.js";
 import { txLinkHtml } from "./explorer.js";
@@ -174,6 +176,8 @@ const state = {
 
   /** L1 deposit notes, each `{ ..., status: "ready" | "spent" }`. A cache. */
   notes: [],
+  /** Whether the shared server snapshot has verified those cached L1 statuses. */
+  l1NoteStatus: "idle",
   /** { [cDest]: { value, chain, recipient, hash, at } } — withdrawn L2 notes. */
   withdrawn: {},
   registered: null,
@@ -353,7 +357,7 @@ function topbar() {
   const acct = state.account ? `${state.account.slice(0, 6)}…${state.account.slice(-4)}` : "CONNECT";
   return `
     <header class="topbar">
-      <a class="brand" href="/vault" data-view="home"><span class="brand-mark">${icons.mark}</span><span>F5</span><span class="tag pink">VAULT</span></a>
+      <a class="brand" href="/vault" data-view="home"><span class="brand-mark">${icons.mark}</span><span>f5</span><span class="tag pink">VAULT</span></a>
       <div class="wallet">
         <div class="wallet-combo account-slot">
           <button id="connect" class="account">${walletBadge()}${acct}</button>
@@ -369,7 +373,7 @@ function topbar() {
 }
 
 function footer() {
-  return `<footer><span>© 2026 F5 / SHIELDED VAULT</span><span><a href="/">Home</a></span></footer>`;
+  return `<footer><span>© 2026 f5 / SHIELDED VAULT</span><span><a href="/">Home</a></span></footer>`;
 }
 
 /** Locked: nothing but the minimal onboarding card. */
@@ -457,6 +461,14 @@ function bind() {
     state.send.draft = null;
     navigateVault("send");
   });
+  on("#bridge-another-note", "click", () => guard(async () => {
+    await reconcileSpentNotes({ required: true });
+    state.send.noteCommitment = state.notes.find((note) => note.status !== "spent")?.commitment ?? "";
+    state.send.amount = "";
+    state.send.draft = null;
+    state.error = null;
+  }));
+  on("#retry-note-status", "click", () => guard(() => reconcileSpentNotes({ required: true }), "verify-notes"));
   on("#max-amount", "click", () => guard(async () => {
     // Truncating MAX would strand up to a full unit of the field's last decimal in
     // the wallet. Round the *reserve* up to the field's precision instead, so the
@@ -723,6 +735,7 @@ function lockVault() {
   clearFormDraft();
   state.identity = null;
   state.notes = [];
+  state.l1NoteStatus = "idle";
   state.withdrawn = {};
   state.registered = null;
   state.noticeTx = null;
@@ -742,7 +755,7 @@ function renderLanding() {
         <div class="launch-top">
           <div class="launch-brand">
             <span class="brand-mark">${icons.mark}</span>
-            <span class="launch-wordmark">F5</span>
+            <span class="launch-wordmark">f5</span>
             <span class="launch-eyebrow">SHIELDED VAULT · 2026</span>
           </div>
           <span class="launch-status"><i class="live-dot"></i> NODE ONLINE</span>
@@ -769,7 +782,7 @@ function renderLanding() {
 function identityGate() {
   if (state.setup?.mode === "import") {
     return `
-      <div class="flow-step active phrase-head import-head"><span class="flow-number">!</span><div><span class="eyebrow">RESTORE YOUR VAULT</span><h3>IMPORT RECOVERY PHRASE</h3><p>Enter each word in order. You can also paste the entire phrase into box 1 and F5 will split it across all twelve boxes.</p></div></div>
+      <div class="flow-step active phrase-head import-head"><span class="flow-number">!</span><div><span class="eyebrow">RESTORE YOUR VAULT</span><h3>IMPORT RECOVERY PHRASE</h3><p>Enter each word in order. You can also paste the entire phrase into box 1 and f5 will split it across all twelve boxes.</p></div></div>
       <div class="mnemonic-input-grid">${state.setup.words.map((word, i) => `
         <label class="mnemonic-word"><b>${i + 1}</b><input data-mnemonic-word="${i}" value="${escapeHtml(word)}" aria-label="Recovery word ${i + 1}" autocomplete="off" autocapitalize="none" spellcheck="false" /></label>`).join("")}
       </div>
@@ -781,7 +794,7 @@ function identityGate() {
 
   if (state.setup) {
     return `
-      <div class="flow-step active phrase-head generate-head"><span class="flow-number">!</span><div><span class="eyebrow">WRITE THIS DOWN</span><h3>YOUR RECOVERY PHRASE</h3><p>These twelve words derive your note secrets, your shielded address, and your vault. They are the only backup that exists. F5 cannot recover them for you.</p></div></div>
+      <div class="flow-step active phrase-head generate-head"><span class="flow-number">!</span><div><span class="eyebrow">WRITE THIS DOWN</span><h3>YOUR RECOVERY PHRASE</h3><p>These twelve words derive your note secrets, your shielded address, and your vault. They are the only backup that exists. f5 cannot recover them for you.</p></div></div>
       <div class="mnemonic-grid">${state.setup.mnemonic.split(" ").map((w, i) => `<span><b>${i + 1}</b>${w}</span>`).join("")}</div>
       <div class="key-actions phrase-actions"><button id="cancel-setup" class="secondary-btn">← BACK</button><button id="copy-phrase" class="secondary-btn">COPY ALL 12 WORDS</button></div>
       ${setupProtectionFields("confirm-setup", "CREATE MY VAULT →", "I have written the phrase down somewhere safe.")}
@@ -1067,6 +1080,16 @@ function actionFlowNode(node, x, y, side) {
   </g>`;
 }
 
+// A circled pair of stacked arrows is the transfer mark used in the map legend.
+function interchangeMark(x, y, className) {
+  return `<g class="${className}" aria-label="Interchange">
+    <circle class="interchange-circle" cx="${x}" cy="${y}" r="24" />
+    <path class="interchange-arrow" d="M ${x + 14} ${y - 7} H ${x - 14} M ${x - 14} ${y - 7} l 6 -6 M ${x - 14} ${y - 7} l 6 6" />
+    <path class="interchange-arrow" d="M ${x - 14} ${y + 7} H ${x + 14} M ${x + 14} ${y + 7} l -6 -6 M ${x + 14} ${y + 7} l -6 6" />
+    <text class="interchange-label" x="${x}" y="${y + 91}">f5</text>
+  </g>`;
+}
+
 function actionFlowDiagram({ ariaLabel, source, targets, interchange = false, inactive = false }) {
   const count = Math.max(targets.length, 1);
   const height = Math.max(460, 120 + count * 118);
@@ -1088,7 +1111,7 @@ function actionFlowDiagram({ ariaLabel, source, targets, interchange = false, in
       ${commonRoute}${routes}
       ${actionFlowNode(source, 246, centerY, "left")}
       ${nodes || `<text class="action-flow-empty" x="774" y="${centerY}">NO DESTINATIONS</text>`}
-      ${interchange ? `<image class="action-interchange" href="/f5-logo.png" x="498" y="${centerY - 32}" width="64" height="64" /><text class="action-interchange-label" x="530" y="${centerY + 91}">F5</text>` : ""}
+      ${interchange ? interchangeMark(530, centerY, "action-interchange") : ""}
     </svg>
   </div>`;
 }
@@ -1221,7 +1244,7 @@ function metroMap(destinations, l1Total, l1NoteCount) {
     </g>`).join("");
 
   return `<div class="note-map metro-map">
-    <svg viewBox="0 0 1060 ${height}" role="img" aria-label="Shielded note transit map from Ethereum through F5 to configured L2 chains">
+    <svg viewBox="0 0 1060 ${height}" role="img" aria-label="Shielded note transit map from Ethereum through a central interchange to configured L2 chains">
       <line class="metro-route route-ethereum" x1="147" y1="${centerY}" x2="402" y2="${centerY}" />
       ${routes}
       <g class="metro-source-card">
@@ -1232,8 +1255,7 @@ function metroMap(destinations, l1Total, l1NoteCount) {
         <text class="metro-badge-text" x="147" y="${centerY + 1}">Ξ</text>
       </g>
       ${destinationCards}
-      <image class="metro-interchange" href="/f5-logo.png" x="399" y="${centerY - 32}" width="64" height="64" />
-      <text class="metro-interchange-label" x="431" y="${centerY + 91}">F5</text>
+      ${interchangeMark(431, centerY, "metro-interchange")}
       ${destinations.length ? "" : `<text class="metro-empty" x="686" y="${centerY}">NO CHAINS SET UP YET</text>`}
     </svg>
   </div>`;
@@ -1362,6 +1384,51 @@ function proofReadyText(draft, send) {
 }
 
 /**
+ * A partial bridge leaves a fresh, immediately spendable change note on L1.
+ * A self-bridge also creates a destination note this vault already has keys for,
+ * but that note stays pending until the destination observes the bridge.
+ */
+function bridgeResultCard(draft) {
+  if (!draft?.relayed) return "";
+  const hasChange = draft.remainingValue > 0n && draft.changeCommitment != null;
+  const hasPendingDestination = Boolean(draft.selfNote);
+  if (!hasChange && !hasPendingDestination) return "";
+
+  const destination = chainLabel(destinationKey(draft.withdrawal.chainId));
+  const symbol = state.config?.symbol ?? "ETH";
+  return `
+    <div class="deposit-result bridge-result">
+      <div class="deposit-result-head"><span class="eyebrow">BRIDGE COMPLETE</span><strong>${hasChange && hasPendingDestination ? "Two notes created" : "New note created"}</strong></div>
+      <div class="bridge-result-grid">
+        ${hasChange ? `<section class="bridge-note-outcome">
+          <div class="bridge-note-label"><span>L1</span> CHANGE NOTE</div>
+          <div class="vnote deposit-result-note">
+            ${noteMark(draft.changeCommitment)}
+            <div>
+              <strong>${escapeHtml(noteName(draft.changeCommitment))}</strong>
+              <small>ETHEREUM · ${short(draft.changeCommitment)}</small>
+            </div>
+            ${pill("ready")}
+          </div>
+          <p class="deposit-result-note-hint"><strong>${fmt(draft.remainingValue)} ${symbol}</strong> remains in your vault and can be bridged again.</p>
+        </section>` : ""}
+        ${hasPendingDestination ? `<section class="bridge-note-outcome">
+          <div class="bridge-note-label"><span>L2</span> DESTINATION NOTE</div>
+          <div class="vnote deposit-result-note">
+            ${noteMark(draft.selfNote.cDest)}
+            <div>
+              <strong>${escapeHtml(noteName(draft.selfNote.cDest))}</strong>
+              <small>${escapeHtml(destination)} · ${short(draft.selfNote.cDest)}</small>
+            </div>
+            ${pill("pending")}
+          </div>
+          <p class="deposit-result-note-hint"><strong>${fmt(BigInt(draft.selfNote.value))} ${symbol}</strong> will be spendable after ${escapeHtml(destination)} confirms the bridge.</p>
+        </section>` : ""}
+      </div>
+    </div>`;
+}
+
+/**
  * Which fingerprint the send panel should show, if any.
  *
  * A self-bridge resolves to this vault's own keys, but only inside
@@ -1388,7 +1455,8 @@ function sendFingerprint(send, recipientMode) {
 function sendView() {
   const send = state.send;
   const draft = send.draft;
-  const ready = state.notes.filter((n) => n.status !== "spent");
+  const notesVerified = state.l1NoteStatus === "verified";
+  const ready = notesVerified ? state.notes.filter((n) => n.status !== "spent") : [];
   const selected = pickNote();
   const recipientMode = send.recipientMode === "other" ? "other" : "self";
   const targetOption = (value, key, label, disabled = false) => `<label class="bridge-option target-option ${disabled ? "is-disabled" : ""}">
@@ -1406,16 +1474,22 @@ function sendView() {
   const recipientReady = recipientMode === "self" || Boolean(send.recipientKey.trim());
   // Proving is a long, main-thread-blocking wasm run — say so, or the button looks dead.
   const action = state.busy
-    ? (draft?.proof ? "SUBMITTING RELAY…" : "PROVING… THIS CAN TAKE A MINUTE")
-    : draft?.relayed ? "RELAY SUBMITTED ✓" : draft?.proof ? "SUBMIT L1 RELAY →" : "QUOTE & PROVE →";
+    ? (draft?.relayed ? "CHECKING NOTES…" : draft?.proof ? "SUBMITTING RELAY…" : "PROVING… THIS CAN TAKE A MINUTE")
+    : draft?.relayed ? "BRIDGE ANOTHER NOTE →" : draft?.proof ? "SUBMIT L1 RELAY →" : "QUOTE & PROVE →";
+  const actionId = draft?.relayed ? "bridge-another-note" : "action";
+  const actionEnabled = draft?.relayed
+    ? !state.busy
+    : ready.length && send.destinationChosen && recipientReady && !state.busy;
 
   return `
     <section class="panel flow-panel">
       ${flowHead("L1 · ETHEREUM", "BRIDGE A NOTE", ready.length ? "Spend an L1 note, bridge its value, and deliver it to a shielded address." : "No spendable L1 notes. Deposit, or run SCAN.")}
       ${bridgeFlowDiagram(send)}
       ${noticeView()}
+      ${state.l1NoteStatus === "verifying" ? `<div class="notice pink-card"><strong>VERIFYING NOTES</strong><span>Checking the shared L1 snapshot before showing notes you can bridge.</span></div>` : ""}
+      ${state.l1NoteStatus === "error" ? `<div class="notice error-card"><strong>NOTE STATUS UNAVAILABLE</strong><span>The app cannot safely verify which L1 notes are unspent. <button id="retry-note-status" type="button" class="inline-action">RETRY</button></span></div>` : ""}
       <fieldset class="bridge-choice note-choice"><legend>L1 NOTE TO SPEND</legend>
-        ${ready.length ? ready.map(noteOption).join("") : `<div class="note-empty">No spendable L1 notes.</div>`}
+        ${ready.length ? ready.map(noteOption).join("") : `<div class="note-empty">${notesVerified ? "No spendable L1 notes." : "Waiting for verified note status."}</div>`}
       </fieldset>
       ${selected ? `
         <div class="field-label"><span>WITHDRAW AMOUNT</span><span>UP TO ${formatEther(BigInt(selected.value))} ${state.config?.symbol ?? "ETH"}</span></div>
@@ -1443,16 +1517,17 @@ function sendView() {
           ${fieldProblemSlot("send-recipient-problem", evmAddressProblem(send.recipientKey))}
         </label>
         <div class="key-actions"><button id="resolve-recipient" class="secondary-btn">CHECK REGISTRY</button></div>
-        ${send.resolved ? `<div class="notice teal-card"><strong>REGISTERED USER FOUND</strong><span>Their shielded address is published on L1. The mark on the field is their fingerprint. The note will be delivered so only they can find it.</span></div>` : ""}`
+        ${send.resolved ? `<div class="notice teal-card"><strong>REGISTERED USER FOUND</strong><span>Their shielded address is published on L1. </span></div>` : ""}`
         : `<div class="notice teal-card"><strong>SELF BRIDGE</strong><span>The destination note will use the shielded address derived from this vault.</span></div>`}
       ${draft?.relayed || draft?.proof ? `<div class="notice ${draft?.relayed ? "teal-card" : "pink-card"}">
         <strong>${draft?.relayed ? "DELIVERED" : "PROOF READY"}</strong>
         <span>${draft?.relayed
-          ? `The note is bridging. The recipient finds it by scanning. You send them nothing, and you can close this tab.${txLink(draft.relayed.txHash ?? draft.relayed.hash, "l1", "VIEW L1 RELAY")}`
+          ? `${recipientMode === "self" ? (draft.remainingValue > 0n ? "Your L1 change note and pending destination note are shown below." : "Your pending destination note is shown below.") : "The recipient finds the note by scanning. You send them nothing, and you can close this tab."}${txLink(draft.relayed.txHash ?? draft.relayed.hash, "l1", "VIEW L1 RELAY")}`
           : proofReadyText(draft, send)}</span>
       </div>` : ""}
       ${state.busy && !draft?.proof ? provingNotice() : ""}
-      <button id="action" class="primary" ${ready.length && send.destinationChosen && recipientReady && !draft?.relayed && !state.busy ? "" : "disabled"}>${action}</button>
+      <button id="${actionId}" class="primary" ${actionEnabled ? "" : "disabled"}>${action}</button>
+      ${bridgeResultCard(draft)}
       <div class="micro">self uses this vault&#12288;★&#12288;other users must be registered on L1</div>
     </section>`;
 }
@@ -1503,8 +1578,8 @@ function receiveView() {
       <div class="notice ${r.response ? "teal-card" : "pink-card"}">
         <strong>${r.response ? "FUNDS RELEASED" : r.proof ? "L2 PROOF READY" : "AUTOMATIC ACTIVATION"}</strong>
         <span>${r.response ? `The destination pool released the note to your address.${txLink(r.response.hash ?? r.response.txHash, note?.chain, "VIEW WITHDRAWAL")}`
-          : r.proof ? "Proved locally. F5 submits the final withdrawal and pays the gas."
-          : "Once bridge backing lands, F5 activates the note automatically. No recipient key material or user transaction is needed."}</span>
+          : r.proof ? "Proved locally. f5 submits the final withdrawal and pays the gas."
+          : "Once bridge backing lands, f5 activates the note automatically. No recipient key material or user transaction is needed."}</span>
       </div>
       ${state.busy && !r.proof && st === "activated" ? provingNotice() : ""}
       <button id="action" class="primary" ${note && !r.response && !state.busy ? "" : "disabled"}>${action}</button>
@@ -1655,7 +1730,7 @@ function provingNotice() {
   const seconds = state.provingSince ? Math.floor((Date.now() - state.provingSince) / 1000) : 0;
   return `<div class="notice pink-card proving-notice" role="status" aria-live="polite">
     <strong>PROVING LOCALLY <span class="proving-elapsed">${seconds}s</span></strong>
-    <span>This runs in your browser and takes up to a minute. Nothing has been sent anywhere. If the tab stops responding, this browser could not start a background worker and is proving on the main thread — that is expected too. Do not close it.</span>
+    <span>Creating your proof securely in this browser. This may take up to a minute — please keep this tab open.</span>
   </div>`;
 }
 
@@ -1731,10 +1806,7 @@ function balances() {
 
 /** L2 status from the already-fetched scan index — no extra network calls. */
 function deriveL2Status(note, index) {
-  if (state.withdrawn[String(note.cDest)]) return "withdrawn";
-  const hit = (index?.proofs ?? []).find((p) => String(p.commitment) === String(note.cDest));
-  if (hit && Number(hit.index) >= 0) return "spendable";
-  return "activate";
+  return deriveNoteStatus({ note, index, withdrawn: state.withdrawn });
 }
 
 /**
@@ -2159,12 +2231,15 @@ function nullifierHashOf(nullifier) {
   return poseidon1([BigInt(nullifier)]).toString();
 }
 
-/** The pool's full burned-nullifier set, as decimal strings. Throws on failure. */
-async function fetchSpentNullifierSet() {
+/** The process-wide public spent-note snapshot. Reading it causes no server RPC call. */
+async function fetchSpentNoteSnapshot() {
   const response = await fetch("/api/l1/spent-nullifiers");
   const body = await response.json();
-  if (!response.ok) throw new Error(body.error ?? "spent-nullifier index unavailable");
-  return new Set((body.nullifiers ?? []).map(String));
+  if (!response.ok) throw new Error(body.error ?? "spent-note snapshot unavailable");
+  return {
+    nullifiers: new Set((body.nullifiers ?? []).map(String)),
+    ragequitCommitments: new Set((body.ragequitCommitments ?? []).map(String)),
+  };
 }
 
 /**
@@ -2176,27 +2251,35 @@ async function fetchSpentNullifierSet() {
  * stays "ready" and gets offered for a spend the pool rejects with
  * NullifierAlreadySpent. This is the on-chain correction.
  *
- * Best-effort: a failed sweep leaves the cache untouched rather than blocking the
- * user. Returns the number of notes newly marked spent.
+ * A bridge eligibility check fails closed: an unavailable snapshot must never turn
+ * stale cached notes into selectable notes. Other callers may use best-effort mode
+ * while recovering the rest of the vault.
  */
-async function reconcileSpentNotes() {
+async function reconcileSpentNotes({ required = false } = {}) {
   if (!state.identity || !state.config?.scope) return 0;
-  let spentSet;
+  state.l1NoteStatus = "verifying";
+  let snapshot;
   try {
-    spentSet = await fetchSpentNullifierSet();
+    snapshot = await fetchSpentNoteSnapshot();
   } catch (error) {
-    console.warn("[reconcile] spent-nullifier check skipped:", error);
+    state.l1NoteStatus = "error";
+    console.warn("[reconcile] spent-note check skipped:", error);
+    if (required) throw new Error("Could not verify which notes are unspent. Retry before bridging.");
     return 0;
   }
   let changed = 0;
   for (const note of state.notes) {
     if (note.status === "spent" || note.nullifier == null) continue;
-    if (spentSet.has(nullifierHashOf(note.nullifier))) {
+    if (
+      snapshot.nullifiers.has(nullifierHashOf(note.nullifier))
+      || snapshot.ragequitCommitments.has(String(note.commitment))
+    ) {
       note.status = "spent";
       changed += 1;
     }
   }
   if (changed) await saveNotes(state.identity.vaultKey, state.config.scope, state.notes);
+  state.l1NoteStatus = "verified";
   return changed;
 }
 
@@ -2560,7 +2643,7 @@ async function copyValue(label, value, rect) {
 async function confirmIdentitySetup() {
   await completeIdentitySetup(
     state.setup.mnemonic,
-    "Vault created. Your phrase is the only backup. F5 cannot recover it.",
+    "Vault created. Your phrase is the only backup. f5 cannot recover it.",
     "Confirm you have written the recovery phrase down first.",
   );
 }
@@ -2672,9 +2755,9 @@ async function afterUnlock() {
     } catch { /* Legacy migration is best-effort; never block the unlock. */ }
   }
 
-  // Correct the note cache against the chain without blocking the unlock — a note
-  // spent on another device reads "ready" until this lands. Re-render on a change.
-  reconcileSpentNotes().then((changed) => { if (changed) render(); }).catch(() => {});
+  // The bridge picker must not render cached notes as READY before the shared
+  // server snapshot has corrected withdrawals and ragequits from other sessions.
+  await reconcileSpentNotes();
 
   await checkRegistration();
 }
@@ -2909,11 +2992,32 @@ async function scanForNotes({ only = null, quiet = false } = {}) {
     }));
     r.scannedCount += candidates.length;
     let found = 0;
+    let reconciled = 0;
     // Matching remains entirely in this browser. Only after this route has been
     // fetched and matched does the sequential runner begin the next route.
     for (const note of noteService.scanL2Notes(candidates, state.identity.shielded)) {
-      r.scanned.push({ ...note, chain: feed.chain, _status: deriveL2Status(note, feed.index) });
+      const status = deriveL2Status(note, feed.index);
+      // A spend this vault has no local record of — another device, a cleared cache,
+      // or a restore from the mnemonic. Filing it in `withdrawn` is what makes the
+      // correction stick: it survives the next scan, shows up in ACTIVITY, and stops
+      // this note being offered again if a later index read fails.
+      if (status === "withdrawn" && !state.withdrawn[String(note.cDest)]) {
+        state.withdrawn[String(note.cDest)] = {
+          value: note.value.toString(),
+          chain: feed.chain,
+          // No recipient or tx hash: the pool's `Withdrawn` names an address this
+          // vault never chose, and claiming otherwise would invent history.
+          recipient: "",
+          hash: null,
+          at: null,
+        };
+        reconciled += 1;
+      }
+      r.scanned.push({ ...note, chain: feed.chain, _status: status });
       found += 1;
+    }
+    if (reconciled && state.config?.scope) {
+      await saveL2History(state.identity.vaultKey, state.config.scope, state.withdrawn);
     }
     return {
       candidates: candidates.length,
@@ -3047,15 +3151,25 @@ async function refreshInFlightRoutes() {
   // tree, so a background refresh landing between two keystrokes would take the
   // focus and the caret with it.
   if (isEditing(document.activeElement)) return;
-  const waiting = [...new Set(state.receive.scanned
-    .filter((note) => note._status === "pending" || note._status === "activate")
-    .map((note) => note.chain))];
-  if (!waiting.length) return;
 
   inFlightRefresh = true;
   try {
     captureForm();
-    await scanForNotes({ only: waiting, quiet: true });
+    // This HTTP read consumes the app server's once-per-minute L1 snapshot. It
+    // performs no chain RPC per browser and keeps stale spent notes out of the
+    // bridge picker on the same cadence as destination refreshes.
+    await reconcileSpentNotes();
+    // Every chain this vault holds a note on, NOT just the ones with a note in
+    // flight. The old filter (`pending`/`activate` only) was the L2 half of the same
+    // bug as tree-inclusion-means-spendable: a note spent on another device sits at
+    // `spendable` locally, so gating on in-flight status skipped precisely the notes
+    // that needed re-checking, and a fully settled vault refreshed nothing at all.
+    // The index read this drives is cursor-cached server-side and shared with the
+    // activation scanner, so widening it costs an HTTP round trip, not chain RPC.
+    const waiting = [...new Set(state.receive.scanned
+      .filter((note) => note._status !== "withdrawn")
+      .map((note) => note.chain))];
+    if (waiting.length) await scanForNotes({ only: waiting, quiet: true });
     render();
   } catch (error) {
     // A background refresh that fails is not the user's problem — the note simply
@@ -3170,6 +3284,10 @@ async function loadQuote() {
   render();
 }
 
+let starknetInFlight = false;
+let starknetRetry = null;
+let starknetAttempts = 0;
+
 /**
  * Is the Starknet destination safe to send to?
  *
@@ -3177,15 +3295,54 @@ async function loadQuote() {
  * came from it. If our L1 pool is not the bound one, the relay bridges the ETH
  * and then the note is REJECTED — the value arrives with no claimable note. So
  * Starknet is offered only when the server confirms the binding matches.
+ *
+ * Retried while the answer looks transient (`starknet-status.js` draws that line).
+ * This used to be fired once, unawaited, from `loadConfig`'s success path — which
+ * returns early forever once `state.config` is set. So whatever the FIRST request got
+ * was latched for the life of the page: starting the app server before the relayer had
+ * bound its port left "STARKNET DISABLED — relayer keys are not configured" on screen
+ * while `/api/starknet/config` was already answering `relayerReady: true`, and only a
+ * reload cleared it. `loadConfig` had backoff for exactly this; the call it made did not.
+ *
+ * `retry: false` is for the heartbeat, which polls on its own schedule: if the fast
+ * retries have already given up on a sustained outage, recovery lands within a minute
+ * rather than restarting the fast rounds every time.
  */
-async function loadStarknetStatus() {
+async function loadStarknetStatus({ retry = true } = {}) {
+  if (starknetInFlight) return;
+  if (starknetRetry) {
+    clearTimeout(starknetRetry);
+    starknetRetry = null;
+  }
+
+  starknetInFlight = true;
+  let status;
   try {
     const response = await fetch("/api/starknet/config");
-    state.starknet = response.ok ? await response.json() : { configured: false, unavailable: true };
+    status = response.ok ? await response.json() : { configured: false, unavailable: true };
   } catch {
-    state.starknet = { configured: false, unavailable: true };
+    status = { configured: false, unavailable: true };
+  } finally {
+    starknetInFlight = false;
   }
-  render();
+
+  const changed = JSON.stringify(status) !== JSON.stringify(state.starknet);
+  state.starknet = status;
+
+  if (retry && starknetStatusUnsettled(status) && starknetAttempts < STARKNET_STATUS_RETRIES) {
+    const delay = starknetRetryDelayMs(starknetAttempts++);
+    starknetRetry = setTimeout(() => {
+      starknetRetry = null;
+      void loadStarknetStatus();
+    }, delay);
+  } else if (!starknetStatusUnsettled(status)) {
+    // Settled: let a later outage start its own fast retries from scratch.
+    starknetAttempts = 0;
+  }
+
+  // Re-rendering under someone mid-entry would take the focus and the caret with it,
+  // and this is unprompted background work. The next render picks the state up.
+  if (changed && !isEditing(document.activeElement)) render();
 }
 
 /*//////////////////////////////////////////////////////////////
@@ -3336,7 +3493,19 @@ async function runSend() {
       }),
     });
     const result = await response.json();
-    if (!response.ok || result.success === false) throw new Error(result.error ?? "L1 relay request failed.");
+    if (!response.ok || result.success === false) {
+      const message = result.error ?? "L1 relay request failed.";
+      if (/NullifierAlreadySpent/i.test(message)) {
+        const stale = state.notes.find((note) => note.commitment === draft.selected.commitment);
+        if (stale) stale.status = "spent";
+        send.noteCommitment = "";
+        send.draft = null;
+        state.l1NoteStatus = "verified";
+        await saveNotes(state.identity.vaultKey, state.config.scope, state.notes);
+        throw new Error("That note was already spent and has been removed from the bridge list.");
+      }
+      throw new Error(message);
+    }
     draft.relayed = result;
     // The spent note is gone from the pool's perspective; mark it as history
     // rather than deleting it, so the portfolio can show what left.
@@ -3389,12 +3558,18 @@ async function runSend() {
   // the relayer only rejects at `relay()` with NullifierAlreadySpent. Reconcile
   // against the chain first, then bail with a clear message. `selected` is a live
   // reference into `state.notes`, so reconcile flips its status in place.
-  await reconcileSpentNotes();
+  await reconcileSpentNotes({ required: true });
   if (selected.status === "spent") {
     throw new Error("That note has already been spent. Run SCAN to refresh your notes.");
   }
   if (!state.config?.scope) throw new Error("POOL_SCOPE is not configured on the API.");
-  if (!state.account) await connectWallet();
+
+  // No wallet needed past this point, deliberately. A Mode-3 send is proved locally from
+  // vault secrets and submitted by the RELAYER — the user signs nothing and no EOA appears
+  // anywhere in the flow now that `RelayData.recipient` is the zero address. Prompting for
+  // a connection would attach an address to a session that has no use for one, which is
+  // the opposite of what this screen is for. (DEPOSIT and RAGEQUIT still connect: the
+  // first sends a transaction, the second must prove it is the original depositor.)
 
   const { NoteService, calculateRelayContext, generateWithdrawalSecrets, WITHDRAW_L1_SIGNALS } = await sdk();
   const notes = new NoteService();
@@ -3411,9 +3586,25 @@ async function runSend() {
       destinationChainId: send.destinationChainId,
       amount: withdrawnValue,
       asset: state.config.asset,
-      // The SENDER's address. This lands in the public `WithdrawalRelayed` event,
-      // so it must never be the recipient's exit address.
-      recipient: state.account,
+      // Deliberately the zero address, and it must stay that way.
+      //
+      // Mode-3's L1 `relay()` never pays `RelayData.recipient` — the value is bridged
+      // to L2 as `C_dest`, and only `feeRecipient` receives an on-chain transfer. The
+      // field survives from the removed modes 1/2/2.5 (CLAUDE.md §10) and from mirroring
+      // the L2 struct, where it IS the real exit address. Here its only reader is
+      // `emit WithdrawalRelayed(msg.sender, _data.recipient, value, fee)`.
+      //
+      // So whatever goes here is published on-chain and buys nothing. It obviously must
+      // not be the recipient's exit address. It must not be the SENDER's either: the
+      // same address appears publicly in `Deposited`, so logging it here lets anyone
+      // join the two and recover the deposit -> withdrawal link the pool exists to
+      // break — with the amount and timestamp attached. Zero leaks neither party.
+      //
+      // `context` still binds this field, just to zero, so the anti-tamper property is
+      // unchanged. (If the dead `extraGas` swap path is ever revived, it sweeps native
+      // to this address — it would need a real one, and per CLAUDE.md §12.5 it needs
+      // rethinking for Mode-3 regardless.)
+      recipient: "0x0000000000000000000000000000000000000000",
       ephemeralKey: preview.ephemeralKey.map(String),
       viewTag: preview.viewTag.toString(),
       extraGas: false,
@@ -3635,6 +3826,47 @@ async function runReceive() {
 }
 
 /**
+ * Re-read the destination index and refuse to go further if the note is already spent.
+ *
+ * The L2 twin of `reconcileSpentNotes({ required: true })`, and it fails closed for the
+ * same reason: proving takes about a minute, the relay costs the relayer gas, and the
+ * pool rejects a spent nullifier at the very end of all of it. Anything short of
+ * positive evidence that the note is unspent — an unreachable index, or a server too
+ * old to publish `spentNullifiers` — has to stop here rather than proceed hopefully.
+ *
+ * Deliberately NOT the cached `r.index[chain]`: a tab open since before the note was
+ * spent elsewhere holds an index that predates the spend, which is the exact case this
+ * check exists for. Returns the fresh index so the caller does not read it twice.
+ */
+async function requireUnspentNote(note) {
+  const path = note.chain === "starknet" ? "/api/starknet/index" : `/api/l2/${note.chain}/index`;
+  const feed = await fetchIndex(note.chain, path);
+  if (feed.error) throw new Error(`Unable to refresh ${chainLabel(note.chain)}: ${feed.error}`);
+  if (!feed.index?.configured) throw new Error(`${chainLabel(note.chain)} is not configured on this relayer.`);
+
+  const spent = spentNullifierSet(feed.index);
+  if (!spent) {
+    throw new Error(
+      `${chainLabel(note.chain)} did not report which notes are spent, so this note cannot be verified as unspent. Retry before withdrawing.`,
+    );
+  }
+
+  state.receive.index[note.chain] = feed.index;
+  if (spent.has(String(note.nullifier))) {
+    const id = String(note.cDest);
+    if (!state.withdrawn[id]) {
+      state.withdrawn[id] = { value: note.value.toString(), chain: note.chain, recipient: "", hash: null, at: null };
+      if (state.config?.scope) {
+        await saveL2History(state.identity.vaultKey, state.config.scope, state.withdrawn);
+      }
+    }
+    note._status = "withdrawn";
+    throw new Error("That note has already been spent on the destination. Run SCAN to refresh this vault.");
+  }
+  return feed.index;
+}
+
+/**
  * The scan already produced `stealthPrivKey` and `sharedSecretX` — derived from
  * the recipient's own keys. Nothing about them comes from the sender.
  */
@@ -3643,15 +3875,7 @@ async function prepareL2Proof(note) {
   const starknet = note.chain === "starknet";
   const recipient = (r.recipient ?? "").trim();
 
-  let index = r.index?.[note.chain];
-  if (!index) {
-    const path = note.chain === "starknet" ? "/api/starknet/index" : `/api/l2/${note.chain}/index`;
-    const feed = await fetchIndex(note.chain, path);
-    if (feed.error) throw new Error(`Unable to refresh ${chainLabel(note.chain)}: ${feed.error}`);
-    if (!feed.index?.configured) throw new Error(`${chainLabel(note.chain)} is not configured on this relayer.`);
-    index = feed.index;
-    r.index[note.chain] = index;
-  }
+  const index = await requireUnspentNote(note);
   const entry = index.proofs?.find((item) => String(item.commitment) === String(note.cDest));
   if (!entry?.proof) throw new Error("The activated note is not indexed in the destination tree yet.");
 
@@ -3664,7 +3888,7 @@ async function prepareL2Proof(note) {
   const { encodeL2RelayData, calculateContext, calculateContextStarknet } = await sdk();
 
   // The destination spend is its own relay with its own fee — NOT the L1 relay's
-  // fee. The recipient sets it; the F5 relayer submits and eats the gas.
+  // fee. The recipient sets it; the f5 relayer submits and eats the gas.
   let withdrawal;
   let context;
   if (starknet) {
@@ -3734,6 +3958,7 @@ async function boot() {
       clearFormDraft();
       state.identity = null;
       state.notes = [];
+      state.l1NoteStatus = "idle";
       state.withdrawn = {};
     }
   } else if (mnemonic) {
@@ -3779,4 +4004,10 @@ window.addEventListener("popstate", () => {
 void ensureWallet().then(render).catch(() => {
   // No config yet means no wallet yet. The connect button builds it on demand.
 });
-window.setInterval(() => { void refreshInFlightRoutes(); }, 60_000);
+window.setInterval(() => {
+  // Not gated on an unlocked vault or the in-flight refresh's own guards: this is a
+  // public read, and it is what catches the relayer restarting mid-session — the case
+  // the fast retries above have already given up on.
+  void loadStarknetStatus({ retry: false });
+  void refreshInFlightRoutes();
+}, 60_000);

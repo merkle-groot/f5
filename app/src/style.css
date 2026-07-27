@@ -228,11 +228,13 @@
 .action-route{fill:none;stroke:var(--route-color);stroke-width:14;stroke-linecap:round;filter:drop-shadow(2px 2px 0 rgba(16,16,16,.35))}
 .action-route-motion{fill:none;stroke:var(--paper);stroke-width:3;stroke-linecap:round;stroke-dasharray:3 17;animation:flow-dash 1.15s linear infinite,flow-pulse 1.8s ease-in-out infinite}
 .action-node-badge{fill:var(--route-color);stroke:var(--ink);stroke-width:7}
-.action-node-icon,.action-node-title,.action-node-detail,.action-interchange-label,.action-flow-empty{fill:var(--ink);font-family:'DM Mono',monospace}
+.action-node-icon,.action-node-title,.action-node-detail,.action-flow-empty{fill:var(--ink);font-family:'DM Mono',monospace}
 .action-node-icon{font-size:14px;font-weight:800;text-anchor:middle;dominant-baseline:middle}
 .action-node-title{font-size:19px;font-weight:800}
 .action-node-detail{fill:#666;font-size:11px;font-weight:700}
-.action-interchange-label{font-size:18px;font-weight:800;text-anchor:middle}
+.interchange-circle{fill:#fff;stroke:var(--ink);stroke-width:7}
+.interchange-arrow{fill:none;stroke:var(--ink);stroke-width:6;stroke-linecap:round;stroke-linejoin:round}
+.interchange-label{fill:var(--ink);font:800 18px 'DM Mono',monospace;text-anchor:middle}
 .action-flow-empty{fill:#666;font-size:14px;font-weight:700}
 .flow-inactive{opacity:.55}
 @keyframes flow-dash{to{stroke-dashoffset:-38}}
@@ -283,7 +285,7 @@
 .metro-route{fill:none;stroke:var(--route-color);stroke-width:14;stroke-linecap:round;filter:drop-shadow(2px 2px 0 rgba(16,16,16,.35))}
 .metro-station{fill:var(--paper);stroke:var(--ink);stroke-width:8}
 .metro-badge{fill:var(--route-color);stroke:var(--ink);stroke-width:7}
-.metro-badge-text,.metro-chain-name,.metro-chain-total,.metro-chain-detail,.metro-source-total,.metro-source-name,.metro-source-detail,.metro-interchange-label,.metro-empty{fill:var(--ink);font-family:'DM Mono',monospace}
+.metro-badge-text,.metro-chain-name,.metro-chain-total,.metro-chain-detail,.metro-source-total,.metro-source-name,.metro-source-detail,.metro-empty{fill:var(--ink);font-family:'DM Mono',monospace}
 .metro-badge-text{font-size:14px;font-weight:800;text-anchor:middle;dominant-baseline:middle}
 .metro-badge-text.route-label-base,.metro-badge-text.route-label-optimism,.metro-badge-text.route-label-ethereum{fill:#fff}
 .metro-chain-total,.metro-source-total{font-size:21px;font-weight:800}
@@ -292,7 +294,6 @@
 .metro-chain-detail,.metro-source-detail{fill:#666;font-size:11px;font-weight:700}
 .metro-source-card .metro-chain-name{font-size:17px}
 .metro-source-card .metro-chain-detail{font-size:10px}
-.metro-interchange-label{font-size:18px;font-weight:900;text-anchor:middle}
 .metro-empty{fill:#666;font-size:14px;font-weight:700}
 .metro-destination.has-pending .metro-station{fill:var(--yellow)}
 .metro-destination.has-value .metro-station{fill:var(--teal)}
@@ -461,6 +462,22 @@ body:has(.vault-frame){background:#eae0cb;background-image:radial-gradient(rgba(
 .deposit-result-note-hint{margin:14px 0 0;font:500 13px 'DM Mono';line-height:1.5}
 .deposit-result-actions{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:20px}
 .deposit-result-actions .secondary-btn{flex:1 1 auto}
+.bridge-result{padding:0;background:#fff;overflow:hidden}
+.bridge-result .deposit-result-head{margin:0;padding:19px 24px 18px;background:var(--teal);border-bottom:5px solid var(--ink)}
+.bridge-result .deposit-result-head strong{font-size:26px}
+.bridge-result-grid{display:grid;grid-template-columns:1fr}
+.bridge-note-outcome{min-width:0;padding:20px 22px 21px}
+.bridge-note-outcome+.bridge-note-outcome{border-top:4px solid var(--ink)}
+.bridge-note-label{display:flex;align-items:center;gap:8px;font:800 11px 'DM Mono';letter-spacing:1.2px}
+.bridge-note-label span{display:inline-grid;place-items:center;width:28px;height:22px;background:var(--ink);color:#fff;font-size:10px;letter-spacing:0}
+.bridge-result .deposit-result-note{margin-top:13px;border-width:3px;box-shadow:none}
+.bridge-result .deposit-result-note strong{font-size:17px}
+.bridge-result .deposit-result-note small{font-size:10px}
+.bridge-result .deposit-result-note-hint{margin:10px 0 0;color:#555;font-size:11px;line-height:1.45}
+.bridge-result .deposit-result-note-hint strong{color:var(--ink)}
+@media(max-width:650px){.bridge-result .deposit-result-head{padding:17px 18px}.bridge-result .deposit-result-head strong{font-size:22px}.bridge-note-outcome{padding:18px}}
+.inline-action{margin-left:8px;border:2px solid var(--ink);background:var(--paper);padding:5px 9px;font:700 10px 'DM Mono';cursor:pointer}
+.inline-action:hover{background:var(--yellow)}
 
 /* The withdraw amount and what comes out of it are one bordered object: the
    input keeps the outer border, the breakdown rows hang off its bottom edge

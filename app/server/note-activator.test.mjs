@@ -87,6 +87,63 @@ describe("planBackedActivations", () => {
 describe("AutomaticNoteActivator", () => {
   const destination = { id: "evm:op", key: "op", label: "OP", pollMs: 1000 };
 
+  it("logs the start and result of every scan", async () => {
+    const messages = [];
+    let time = 1_000;
+    const activator = new AutomaticNoteActivator({
+      getDestinations: () => [destination],
+      scan: async () => {
+        time = 1_025;
+        return state({
+          received: [{ commitment: 7n, value: 10n }],
+          tokensReceived: 10n,
+        });
+      },
+      activate: async () => {
+        time = 1_040;
+        return { txHash: "0xabc" };
+      },
+      logger: {
+        log: (...parts) => messages.push(parts.join(" ")),
+        warn: (...parts) => messages.push(parts.join(" ")),
+      },
+      now: () => time,
+    });
+
+    await activator.tick(destination);
+
+    assert.equal(messages[0], "[l2-auto-activate] OP scan started");
+    assert.match(
+      messages.at(-1),
+      /^\[l2-auto-activate\] OP scan complete in 40ms: 1 received, 0 already activated, 1 pending, 1 eligible, 1 activated, 0 activation failures; next scan in 1000ms$/,
+    );
+  });
+
+  it("logs failed scans with retry timing", async () => {
+    const warnings = [];
+    let time = 2_000;
+    const activator = new AutomaticNoteActivator({
+      getDestinations: () => [destination],
+      scan: async () => {
+        time = 2_015;
+        throw new Error("RPC down");
+      },
+      activate: async () => assert.fail("must not activate when the scan failed"),
+      logger: {
+        log() {},
+        warn: (...parts) => warnings.push(parts.join(" ")),
+      },
+      now: () => time,
+    });
+
+    await activator.tick(destination);
+
+    assert.equal(
+      warnings[0],
+      "[l2-auto-activate] OP scan failed after 15ms (failure 1; next attempt in 1000ms): RPC down",
+    );
+  });
+
   it("asks the relayer to activate each nominated note", async () => {
     const activated = [];
     const activator = new AutomaticNoteActivator({

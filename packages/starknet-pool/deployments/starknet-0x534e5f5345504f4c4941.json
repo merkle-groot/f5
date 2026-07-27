@@ -3,12 +3,13 @@
   "contracts": [
     {
       "name": "Groth16VerifierBN254",
-      "address": "0x07a120ad48cdc5c42d377d5765f5517add99d628fee91a73cfcb0f4abce11246",
-      "classHash": "0x048a340e310e3432ae036474ad250c1fcc2bc6ff4da860b87236f985f598ee2e"
+      "address": "0x05f19bb47a29c6089a93a394ebb0fb1f3043debbf21b2fce7524e6e79c361887",
+      "classHash": "0x001379b5ab1c8c33b4303699628bf9364c5011b361622043407563593ca5f9da",
+      "vkeySha256": "ae9a26d466dd1150d558d61ce50f986cab380c5dd089a812fb11bd62096365d2"
     },
     {
       "name": "StarknetPrivacyPool",
-      "address": "0x05e1eb2abba533a6a24b15a37ab73d193bed4f4e19c4a40fa026fb29996b5b7c",
+      "address": "0x0090a99b5f6d62e4d12da06375fecac94b2765d188436dad817b8c3406a7c8a0",
       "classHash": "0x022a5626973545173a59889364b82ee02fc1736acb63566f7dc09d695707bc0c",
       "asset": "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
       "tokenBridge": "0x04c5772d1914fe6ce891b64eb35bf3522aeae1315647314aac58b01137607f3f",

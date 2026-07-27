@@ -108,3 +108,75 @@ describe("DestinationService.withdraw", () => {
     expect(calls).toEqual(["verify", "withdraw"]);
   });
 });
+
+describe("DestinationService.activate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.createDestinationRequest.mockResolvedValue(undefined);
+    mocks.updateBroadcastedRequest.mockResolvedValue(undefined);
+    mocks.updateFailedRequest.mockResolvedValue(undefined);
+  });
+
+  /**
+   * The backing check must run inside the provider's per-signer queue, not before
+   * it. Run outside, two activations nominated against the same
+   * `tokensReceivedFromBridge` both pass, then serialize, and the second reverts —
+   * which is the exact gas waste the check exists to avoid.
+   */
+  it("verifies backing inside the provider's queue, not before entering it", async () => {
+    const destination = provider();
+    const activationState = vi
+      .fn()
+      .mockResolvedValue({ pendingValue: 5n, activatedSupply: 0n, tokensReceived: 5n });
+    destination.activationState = activationState;
+
+    let verifyRanInsideQueue = false;
+    destination.activateNote = vi.fn().mockImplementation(async (_commitment, verify) => {
+      // Nothing may have been read before the provider was handed the work.
+      expect(activationState).not.toHaveBeenCalled();
+      await verify();
+      verifyRanInsideQueue = true;
+      return { hash: "0xdef" };
+    });
+
+    const result = await serviceFor(destination).activate("starknet", 42n);
+
+    expect(result.success).toBe(true);
+    expect(result.txHash).toBe("0xdef");
+    expect(verifyRanInsideQueue).toBe(true);
+    expect(activationState).toHaveBeenCalledWith(42n);
+  });
+
+  it("refuses an unbacked note without broadcasting", async () => {
+    const destination = provider();
+    destination.activationState = vi
+      .fn()
+      .mockResolvedValue({ pendingValue: 9n, activatedSupply: 4n, tokensReceived: 5n });
+    destination.activateNote = vi.fn().mockImplementation(async (_commitment, verify) => {
+      await verify();
+      return { hash: "0xdef" };
+    });
+
+    const result = await serviceFor(destination).activate("starknet", 42n);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/not yet backed/);
+    expect(result.txHash).toBeUndefined();
+  });
+
+  it("refuses a note the pool never received", async () => {
+    const destination = provider();
+    destination.activationState = vi
+      .fn()
+      .mockResolvedValue({ pendingValue: 0n, activatedSupply: 0n, tokensReceived: 100n });
+    destination.activateNote = vi.fn().mockImplementation(async (_commitment, verify) => {
+      await verify();
+      return { hash: "0xdef" };
+    });
+
+    const result = await serviceFor(destination).activate("starknet", 42n);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/not pending/);
+  });
+});

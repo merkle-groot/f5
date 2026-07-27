@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">F5 vortex logo concept</title>
+  <desc id="desc">Three curved, tapering bands rotate around a central axis and resolve into a hooked tornado touchdown.</desc>
+  <!-- Concept variant: black artwork on a transparent canvas. -->
+  <g fill="#101010">
+    <!-- Wide, forward-facing outer band. Its trailing edge curves back toward the shared axis. -->
+    <path d="M21 53C66 20 158 19 229 61C182 47 108 50 55 77C41 70 29 61 21 53Z"/>
+    <!-- Second revolution: 65% of the outer band's horizontal span. -->
+    <path d="M58 100C91 76 151 75 196 102C158 93 112 97 78 116C69 111 62 106 58 100Z"/>
+    <!-- Third revolution: again reduced to 65%, preserving the rake and terminal treatment. -->
+    <path d="M93 145C118 128 158 129 184 145C157 140 127 144 105 158C100 154 96 150 93 145Z"/>
+    <!-- The final, recessed turn breaks away into a narrow curved touchdown. -->
+    <path d="M113 175C128 166 146 167 158 176C147 181 139 190 136 204C133 219 128 232 119 243C124 221 123 196 113 175Z"/>
+  </g>
+</svg>
