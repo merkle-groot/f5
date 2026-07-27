@@ -40,7 +40,7 @@ async function run({ kind, args }) {
   // main-thread proving instead of reporting a proof failure that never happened.
   let Circuits, PrivacyPoolSDK;
   try {
-    ({ Circuits, PrivacyPoolSDK } = await import("@0xbow/privacy-pools-core-sdk"));
+    ({ Circuits, PrivacyPoolSDK } = await import("@f5/privacy-pool-sdk"));
   } catch (error) {
     throw Object.assign(new Error(`Worker could not load the SDK: ${error?.message ?? error}`), { fallback: true });
   }

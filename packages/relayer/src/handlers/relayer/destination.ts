@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from "express";
-import { WithdrawalProof } from "@0xbow/privacy-pools-core-sdk";
+import { WithdrawalProof } from "@f5/privacy-pool-sdk";
 import { ValidationError } from "../../exceptions/base.exception.js";
 import { getDestinationService } from "../../services/index.js";
 import { DestinationWithdrawal } from "../../providers/destination/types.js";

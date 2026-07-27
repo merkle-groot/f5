@@ -16,10 +16,8 @@ import {
   RelayRequestBody,
   WithdrawPublicSignals,
 } from "./interfaces/relayer/request.js";
-import { WITHDRAW_L1_SIGNALS } from "@0xbow/privacy-pools-core-sdk";
+import { WITHDRAW_L1_SIGNALS } from "@f5/privacy-pool-sdk";
 import { RelayDataAbi } from "./types/abi.types.js";
-import { getFeeReceiverAddress, getSignerPrivateKey } from "./config/index.js";
-import { privateKeyToAccount } from "viem/accounts";
 
 /**
  * The decoded Mode-3 relay `data` payload. `ephemeralKey`/`viewTag` are the
@@ -123,12 +121,6 @@ export function isViemError(error: unknown): error is ViemError {
     ContractFunctionRevertedError.prototype.constructor.name,
   ];
   return viemErrorNames.includes(error?.constructor?.name || "");
-}
-
-export function isFeeReceiverSameAsSigner(chainId: number) {
-  const feeReceiverAddress = getFeeReceiverAddress(chainId);
-  const signerAddress = privateKeyToAccount(getSignerPrivateKey(chainId) as `0x${string}`).address;
-  return feeReceiverAddress.toLowerCase() === signerAddress.toLowerCase();
 }
 
 export function isNative(asset: `0x${string}`) {

@@ -48,6 +48,18 @@ export const withdrawnEvent = {
 };
 export const withdrawnKey = "Withdrawn(uint256,uint256,uint256,uint256)";
 
+export const ragequitEvent = {
+  type: "event",
+  name: "Ragequit",
+  inputs: [
+    { name: "_ragequitter", type: "address", indexed: true },
+    { name: "_commitment", type: "uint256", indexed: false },
+    { name: "_label", type: "uint256", indexed: false },
+    { name: "_value", type: "uint256", indexed: false },
+  ],
+};
+export const ragequitKey = "Ragequit(address,uint256,uint256,uint256)";
+
 /** The stealth material for a Mode-3 note, emitted on L1 regardless of destination. */
 export const l2NoteEvent = {
   type: "event",
@@ -59,6 +71,26 @@ export const l2NoteEvent = {
   ],
 };
 export const l2NoteKey = "L2Note(uint256,uint256[2],bytes1)";
+
+/**
+ * The one L1 pool log stream shared by recovery, state proofs, delivery scans,
+ * activity, and spent-note reconciliation. One OR-topic request over a block range
+ * is much cheaper than maintaining a separate cursor for every event type.
+ */
+export const l1PoolEvents = [
+  depositedEvent,
+  leafInsertedEvent,
+  withdrawnEvent,
+  ragequitEvent,
+  l2NoteEvent,
+];
+export const l1PoolKey = [
+  depositedKey,
+  leafInsertedKey,
+  withdrawnKey,
+  ragequitKey,
+  l2NoteKey,
+].join("|");
 
 // --- L2 pool -----------------------------------------------------------------
 
@@ -75,9 +107,40 @@ export const noteReceivedKey = "NoteReceived(uint256,uint256)";
 export const noteActivatedEvent = { ...noteReceivedEvent, name: "NoteActivated" };
 export const noteActivatedKey = "NoteActivated(uint256,uint256)";
 
-/** One topic-0 OR filter for the two halves of a destination note's lifecycle. */
-export const noteLifecycleEvents = [noteReceivedEvent, noteActivatedEvent];
-export const noteLifecycleKey = `${noteReceivedKey}|${noteActivatedKey}`;
+/**
+ * The destination pool's spend event.
+ *
+ * `_spentNullifier` is the `withdrawL2` circuit's `existingNullifierHash`, i.e.
+ * `Poseidon(stealthPrivateKey, C_dest)` (`commitmentL2Withdraw.circom`). A recipient
+ * holds both halves of that preimage for every note their scan matched, so this is the
+ * one public signal that lets a wallet recognise its OWN spent notes — the pool's
+ * `nullifierHashes` mapping is unlinkable to a commitment by design.
+ */
+export const l2WithdrawnEvent = {
+  type: "event",
+  name: "Withdrawn",
+  inputs: [
+    { name: "_recipient", type: "address", indexed: true },
+    { name: "_spentNullifier", type: "uint256", indexed: false },
+    { name: "_value", type: "uint256", indexed: false },
+    { name: "_feeAmount", type: "uint256", indexed: false },
+  ],
+};
+export const l2WithdrawnKey = "Withdrawn(address,uint256,uint256,uint256)";
+
+/**
+ * One topic-0 OR filter for a destination note's whole lifecycle: arrival, activation,
+ * and spend.
+ *
+ * `Withdrawn` rides in the SAME filter as the other two rather than getting a cursor of
+ * its own. Spending never removes the leaf — the pool just sets `nullifierHashes[h]`
+ * (`L2PrivacyPool.sol:288`) — so a spent note keeps a valid Merkle proof forever and
+ * inclusion cannot be read as spendability. Anything that lists activated notes has to
+ * subtract the spent ones or it reports stale notes as spendable, which is exactly the
+ * bug this stream was widened to fix.
+ */
+export const noteLifecycleEvents = [noteReceivedEvent, noteActivatedEvent, l2WithdrawnEvent];
+export const noteLifecycleKey = `${noteReceivedKey}|${noteActivatedKey}|${l2WithdrawnKey}`;
 
 /** Native bridge backing. ERC20/Starknet backing is signalled by the asset's Transfer event. */
 export const backingReceivedEvent = {
@@ -222,6 +285,16 @@ export function parseL2NoteLog(log) {
     commitment: args._newCommitmentHashL2,
     ephemeralKey: [args._ephemeralKey[0], args._ephemeralKey[1]],
     viewTag: args._viewTag,
+    blockNumber: log.blockNumber,
+    transactionHash: log.transactionHash,
+  };
+}
+
+export function parseL2WithdrawnLog(log) {
+  const args = require_(log, ["_spentNullifier", "_value"], "Withdrawn");
+  return {
+    spentNullifier: args._spentNullifier,
+    value: args._value,
     blockNumber: log.blockNumber,
     transactionHash: log.transactionHash,
   };

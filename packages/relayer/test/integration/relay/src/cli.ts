@@ -6,7 +6,7 @@ import { ChainContext } from "./chain.js";
 import { feeRecipient, PRIVATE_KEY, processooor, recipient } from "./constants.js";
 import { encodeFeeData, isNative } from "./util.js";
 import { SdkWrapper } from './sdk-wrapper.js';
-import { derivePublicKey, NoteService } from "@0xbow/privacy-pools-core-sdk";
+import { derivePublicKey, NoteService } from "@f5/privacy-pool-sdk";
 
 /**
  * The destination the note is bridged to. Mode-3 has no `processooor`: a relay
@@ -52,16 +52,14 @@ interface QuoteCli {
   context: Context;
   asset: `0x${string}`;
   amount: bigint;
-  extraGas: boolean;
 }
 
-export async function quoteCli({ context, asset, amount, extraGas }: QuoteCli) {
+export async function quoteCli({ context, asset, amount }: QuoteCli) {
   return quote({
     chainId: context.chainId,
     amount: amount.toString(),
     asset,
     recipient,
-    extraGas
   });
 }
 
@@ -70,7 +68,6 @@ interface RelayCli {
 
   asset: `0x${string}`;
   withQuote: boolean;
-  extraGas: boolean;
   amount: bigint;
 
   fromDeposit: boolean;
@@ -86,7 +83,7 @@ interface RelayCli {
   }[];
 }
 
-export async function relayCli({ asset, withQuote, amount, extraGas, fromDeposit, fromLabel, accNonce, value, context, leaves }: RelayCli) {
+export async function relayCli({ asset, withQuote, amount, fromDeposit, fromLabel, accNonce, value, context, leaves }: RelayCli) {
 
   const { chainId, privateKey } = context;
   const sdkWrapper = new SdkWrapper(ChainContext(chainId, privateKey));
@@ -141,7 +138,6 @@ export async function relayCli({ asset, withQuote, amount, extraGas, fromDeposit
       recipient,
       ephemeralKey: stealth.ephemeralKey.map(String),
       viewTag: stealth.viewTag,
-      extraGas
     });
     data = quoteRes.feeCommitment!.withdrawalData as `0x${string}`;
     relayFeeBPS = BigInt(quoteRes.feeBPS);
@@ -185,7 +181,7 @@ interface DefArgs {
 export async function cli() {
   let args = minimist(process.argv.slice(2), {
     string: ["asset", "fromLabel", "accNonce", "output"],
-    boolean: ["quote", "extraGas", "fromDeposit"],
+    boolean: ["quote", "fromDeposit"],
     alias: {
       "private-key": "privateKey",
       "chain-id": "chainId",
@@ -198,7 +194,6 @@ export async function cli() {
       "chainId": process.env["CHAIN_ID"] || 1115511,
       "privateKey": process.env["PRIVATE_KEY"] || PRIVATE_KEY,
       "asset": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
-      "extraGas": true,
       "quote": false,
       "fromDeposit": false,
     }
@@ -229,12 +224,11 @@ export async function cli() {
       if (args.length < 3) {
         throw Error("Not enough args");
       }
-      args = args as DefArgs & { amount: string, asset: string; extraGas: boolean; };
+      args = args as DefArgs & { amount: string, asset: string; };
       await quoteCli({
         context,
         asset: getAddress(args.asset),
         amount: BigInt(args.amount),
-        extraGas: args.extraGas
       });
       break;
     }
@@ -243,7 +237,6 @@ export async function cli() {
         amount: string;
         asset: string;
         quote: boolean;
-        extraGas: boolean;
 
         fromDeposit: boolean;
         fromLabel: string;
@@ -257,7 +250,6 @@ export async function cli() {
         context,
         asset: getAddress(args.asset),
         amount: BigInt(args.amount),
-        extraGas: args.extraGas,
         withQuote: args.quote,
 
         fromDeposit: args.fromDeposit,

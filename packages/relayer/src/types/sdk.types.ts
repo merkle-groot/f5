@@ -2,7 +2,7 @@ import {
   Address,
   RelayWithdrawal,
   WithdrawalProof,
-} from "@0xbow/privacy-pools-core-sdk";
+} from "@f5/privacy-pool-sdk";
 import { WithdrawalPayload } from "../interfaces/relayer/request.js";
 
 export interface SdkProviderInterface {

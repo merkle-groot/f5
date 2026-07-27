@@ -34,6 +34,7 @@ REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd) || exit 2
 cd "$REPO_ROOT" || exit 2
 
 command -v jq >/dev/null 2>&1 || { echo "jq is required (brew install jq)" >&2; exit 2; }
+command -v python3 >/dev/null 2>&1 || { echo "python3 is required" >&2; exit 2; }
 if [ "$ONCHAIN" = 1 ] && ! command -v cast >/dev/null 2>&1; then
   echo "--onchain needs cast (foundryup)" >&2; exit 2
 fi
@@ -358,6 +359,37 @@ else
       "$(jq -r --argjson id "$L1_CHAIN_ID" 'first(.chains[] | select(.chain_id == $id) | .asp_pools[0].start_block) // empty' "$RELAYER_CFG" 2>/dev/null)"
   fi
 
+  # Withdrawal proofs bind the destination pool's immutable SCOPE into their
+  # context. If the relayer submits to any other pool, a valid proof reverts with
+  # ContextMismatch(). Compare every destination, not just the L1 ASP source.
+  while IFS='|' read -r key chain_id record app_prefix env_prefix kind pool_contract; do
+    [ -n "$key" ] || continue
+    [ -f "$record" ] || { skip "$key relayer destination: not deployed"; continue; }
+
+    family=$(jq -r --arg key "$key" \
+      'first(.destinations[] | select(.key == $key) | .family) // empty' "$RELAYER_CFG" 2>/dev/null)
+    pool=$(jq -r --arg key "$key" \
+      'first(.destinations[] | select(.key == $key) | .pool_address) // empty' "$RELAYER_CFG" 2>/dev/null)
+    configured_chain_id=$(jq -r --arg key "$key" \
+      'first(.destinations[] | select(.key == $key) | .chain_id) // empty' "$RELAYER_CFG" 2>/dev/null)
+
+    if [ -z "$family" ]; then
+      bad "$cfg_name destinations has no \"$key\" entry"
+      continue
+    fi
+    cmp_exact "$cfg_name destinations[$key].family" "$kind" "$family"
+    if [ "$kind" = starknet ]; then
+      # SN_SEPOLIA in felt/hex form is 393402133025997798000961 in relayer JSON.
+      cmp_exact "$cfg_name destinations[$key].chain_id" "393402133025997798000961" "$configured_chain_id"
+      cmp_felt "$cfg_name destinations[$key].pool_address" \
+        "$(rec_get "$record" "$pool_contract" address)" "$pool"
+    else
+      cmp_exact "$cfg_name destinations[$key].chain_id" "$chain_id" "$configured_chain_id"
+      cmp_addr "$cfg_name destinations[$key].pool_address" \
+        "$(rec_get "$record" "$pool_contract" address)" "$pool"
+    fi
+  done < <(printf '%s\n' "$DESTINATIONS")
+
   # A committed provider key is a live credential sitting in git history.
   if git ls-files --error-unmatch "$RELAYER_CFG" >/dev/null 2>&1; then
     if jq -r '.. | strings' "$RELAYER_CFG" 2>/dev/null | grep -qE '(/v3/|/rpc/v[0-9_]+/)[A-Za-z0-9_-]{16,}'; then
@@ -427,6 +459,34 @@ else
   DEV_KEYS=$(jq -r '[.artifacts | to_entries[] | select(.value.provenance != "ceremony") | .key] | join(", ")' "$MANIFEST")
   if [ -n "$DEV_KEYS" ]; then
     warn "development Groth16 keys packaged for: $DEV_KEYS ${DIM}(a ceremony must replace these before mainnet)${RST}"
+  fi
+fi
+
+# Garaga bakes the Groth16 vkey into Cairo source. A fresh phase-2 contribution
+# changes delta without changing the circuit, so compiling stale constants still
+# succeeds but every proof generated with the new zkey fails on Starknet.
+STARKNET_VKEY=packages/circuits/build/withdrawL2/groth16_vkey.json
+STARKNET_CONSTANTS=packages/starknet-pool/src/groth16_verifier_constants.cairo
+if starknet_key_check=$(python3 ops/check-starknet-vkey.py \
+    --vkey "$STARKNET_VKEY" --constants "$STARKNET_CONSTANTS" 2>&1); then
+  ok "$starknet_key_check"
+else
+  bad "$starknet_key_check\n        regenerate the Cairo verifier constants from $STARKNET_VKEY before deploying"
+fi
+
+# Future Starknet records carry the exact vkey digest used by the deployer. This
+# makes deployed-key drift detectable offline and without another RPC call.
+if [ -f "$SN_REC" ]; then
+  current_vkey_sha=$(python3 - "$STARKNET_VKEY" <<'PY'
+import hashlib, sys
+print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())
+PY
+)
+  recorded_vkey_sha=$(rec_get "$SN_REC" Groth16VerifierBN254 vkeySha256)
+  if [ -z "$recorded_vkey_sha" ]; then
+    bad "Starknet verifier deployment record has no vkeySha256\n        its deployed key cannot be matched to the current proving key; redeploy with the current deployer"
+  else
+    cmp_exact "Starknet deployed verifier vkeySha256" "$current_vkey_sha" "$recorded_vkey_sha"
   fi
 fi
 

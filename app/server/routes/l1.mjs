@@ -11,17 +11,15 @@ import { getEvmL2s, getL1, l1Indexable } from "../config.mjs";
 import {
   getDepositEvents,
   l1Client,
-  readL1Event,
+  readL1PoolEvents,
+  readL1SpendEvents,
 } from "../evm-reads.mjs";
-import { errorMessage, handler, sendJson } from "../http.mjs";
+import { errorMessage, handler, parseCommitment, sendJson } from "../http.mjs";
+import { l1SpendSnapshot } from "../l1-spend-snapshot.mjs";
 import {
   assetConfigAbi,
   currentRootAbi,
-  leafInsertedEvent,
-  leafInsertedKey,
   parseWithdrawalLog,
-  withdrawnEvent,
-  withdrawnKey,
 } from "../pool-events.mjs";
 import { rpcRuntime } from "../rpc-runtime.mjs";
 
@@ -81,7 +79,7 @@ l1Router.get("/activity", async (_req, res) => {
   try {
     const [deposits, withdrawalLogs] = await Promise.all([
       getDepositEvents(),
-      readL1Event(withdrawnEvent, withdrawnKey),
+      readL1SpendEvents().then(({ withdrawals }) => withdrawals),
     ]);
     const withdrawals = withdrawalLogs.map(parseWithdrawalLog);
     // sendJson, not res.json: these events carry bigints and JSON.stringify throws.
@@ -162,7 +160,7 @@ l1Router.get(
   "/l1/withdrawals",
   handler(
     async (req, res) => {
-      const logs = await readL1Event(withdrawnEvent, withdrawnKey, {
+      const { withdrawals: logs } = await readL1SpendEvents({
         force: req.query.refresh === "1",
       });
       const withdrawals = logs.map(parseWithdrawalLog);
@@ -184,11 +182,11 @@ l1Router.get("/l1/state-proof/:commitment", async (req, res) => {
   if (!l1Indexable()) return res.status(503).json({ error: "L1 pool indexing is not configured" });
   const { poolAddress, rpcUrl } = getL1();
   try {
-    const logs = await readL1Event(leafInsertedEvent, leafInsertedKey);
+    const logs = (await readL1PoolEvents()).filter((log) => log.eventName === "LeafInserted");
     // Sort a copy: `logs` is the cache's own array and must not be reordered in place.
     const ordered = [...logs].sort((a, b) => Number(a.args._index - b.args._index));
     const leaves = ordered.map((log) => log.args._leaf);
-    const commitment = BigInt(req.params.commitment);
+    const commitment = parseCommitment(req.params.commitment);
 
     // An empty pool has no leaves, and LeanIMT's insertMany rejects an empty array
     // with the singularly unhelpful "There are no leaves to add". Answer the question
@@ -235,31 +233,32 @@ l1Router.get("/l1/state-proof/:commitment", async (req, res) => {
       },
     });
   } catch (error) {
-    return res.status(502).json({ error: errorMessage(error, "Unable to reconstruct L1 state tree") });
+    return res
+      .status(error.status ?? 502)
+      .json({ error: errorMessage(error, "Unable to reconstruct L1 state tree") });
   }
 });
 
 /**
- * The set of nullifier hashes the L1 pool has already burned.
+ * The shared, process-wide snapshot of L1 notes the pool has already spent.
  *
- * A note's local `status` is a write-only cache — it only flips to "spent" after a
- * successful relay in the session that spent it. A note spent on another device, or
- * before a vault recovery (which rebuilds from public deposits and cannot tell a
- * spent note from a live one), stays "ready" and gets offered for a spend the pool
- * then rejects with `NullifierAlreadySpent`. This endpoint is the on-chain source of
- * truth the client reconciles against. `_spentNullifier` IS the nullifier hash the
- * pool marks spent — the same value the withdrawal circuit exposes as
- * `existingNullifierHash` — so no hashing is needed here.
+ * Withdrawal events identify the burned nullifier; ragequits expose the spent
+ * commitment instead. Both complete public sets are returned so matching remains
+ * client-side and private. Crucially, this handler performs no RPC call: the
+ * once-per-minute background scanner refreshes the snapshot for every user.
  */
-l1Router.get("/l1/spent-nullifiers", async (req, res) => {
+l1Router.get("/l1/spent-nullifiers", async (_req, res) => {
   if (!l1Indexable()) return res.status(503).json({ error: "L1 pool indexing is not configured" });
-  try {
-    const logs = await readL1Event(withdrawnEvent, withdrawnKey, {
-      force: req.query.refresh === "1",
+  const snapshot = l1SpendSnapshot.snapshot();
+  if (!snapshot || !l1SpendSnapshot.isFresh()) {
+    return res.status(503).json({
+      error: !snapshot
+        ? l1SpendSnapshot.error
+          ? errorMessage(l1SpendSnapshot.error, "L1 spent-note snapshot unavailable")
+          : "L1 spent-note snapshot is warming up"
+        : "L1 spent-note snapshot is stale",
     });
-    const nullifiers = [...new Set(logs.map((log) => String(log.args._spentNullifier)))];
-    return sendJson(res, { nullifiers });
-  } catch (error) {
-    return sendJson(res, { error: errorMessage(error, "Unable to index spent nullifiers") }, 502);
   }
+  res.set("cache-control", "public, max-age=5, stale-while-revalidate=55");
+  return sendJson(res, snapshot);
 });

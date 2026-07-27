@@ -5,3 +5,15 @@
 ## API keys) and must never be tracked. Commit the *.example.json templates instead.
 config.json
 config.sepolia.json
+
+## Operational state, not source. `config.sepolia.example.json` points
+## sqlite_db_path at ./data/relayer.sqlite, so the directory is kept (via .gitkeep)
+## but its contents never are: the DB accumulates relay history, churns on every
+## run, and has no business in the index.
+data/*.sqlite
+data/*.sqlite-journal
+data/*.sqlite-wal
+data/*.sqlite-shm
+
+## Incremental TypeScript build state — regenerated on every build
+*.tsbuildinfo

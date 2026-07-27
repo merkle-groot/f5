@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import type { WithdrawalProof } from "@0xbow/privacy-pools-core-sdk";
+import type { WithdrawalProof } from "@f5/privacy-pool-sdk";
 import { describe, expect, it } from "vitest";
 import { toGaragaCalldata } from "../../src/providers/destination/garaga.js";
 
@@ -8,6 +8,13 @@ const fixturePath = (name: string): string =>
   fileURLToPath(
     new URL(`../../../starknet-pool/tests/fixtures/${name}`, import.meta.url),
   );
+
+// Pin the verifying key to the one this fixture proof was generated against.
+// Without this, `toGaragaCalldata` falls back to `packages/circuits/build/`, and a
+// local rebuild of the circuit (a fresh trusted setup produces a different vkey)
+// makes Garaga's calldata generation abort inside WASM with a bare
+// `RuntimeError: unreachable`, which reads as a code bug rather than a stale build.
+process.env.WITHDRAW_L2_VKEY_PATH = fixturePath("groth16_vkey.json");
 
 const rawProof = JSON.parse(readFileSync(fixturePath("proof.json"), "utf8"));
 const publicSignals = JSON.parse(

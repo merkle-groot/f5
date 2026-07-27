@@ -30,10 +30,12 @@ it("uses the shared 15-second active scan interval for every destination", () =>
 
   try {
     const destinations = activationDestinations();
+    // Starknet is absent even though it is fully configured above: its notes activate
+    // inline in the delivery transaction, so scanning it could only ever confirm that
+    // nothing was pending. Asserted here so re-adding it is a deliberate act.
     assert.deepEqual(destinations.map(({ key, pollMs }) => [key, pollMs]), [
       ["op", 15_000],
       ["base", 15_000],
-      ["starknet", 15_000],
     ]);
   } finally {
     for (const [key, value] of previous) {

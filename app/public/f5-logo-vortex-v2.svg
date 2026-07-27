@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">F5 vortex logo concept two</title>
+  <desc id="desc">A diagonal tornado of three curved blades wrapping around a shared axis.</desc>
+  <!-- Standalone concept. The original logo and first concept remain unchanged. -->
+  <g fill="#101010">
+    <!-- Front sweep: broad left shoulder, lifted receding tip. -->
+    <path d="M22 78C61 33 151 13 231 43C165 46 107 66 59 102C44 96 31 88 22 78Z"/>
+    <!-- The middle turn passes behind the front sweep; its span is 68% of it. -->
+    <path d="M43 132C75 94 142 73 197 86C148 95 108 120 74 153C61 148 50 140 43 132Z"/>
+    <!-- The final visible turn carries the same rake at 66% of the preceding span. -->
+    <path d="M73 178C95 148 135 127 170 133C141 146 118 171 101 197C90 193 80 186 73 178Z"/>
+    <!-- A narrow, curved touchdown completes the spiral rather than fading straight down. -->
+    <path d="M108 208C115 189 129 172 145 164C132 193 127 220 119 241C118 228 115 216 108 208Z"/>
+  </g>
+</svg>

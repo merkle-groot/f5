@@ -14,7 +14,7 @@ deposits across N pools.
 > [Status and known gaps](#status-and-known-gaps). This is not production software and has not been
 > audited.
 
-![The F5 shielded vault: a transit map of L1 and the four destination chains, alongside the spendable
+![The f5 shielded vault: a transit map of L1 and the four destination chains, alongside the spendable
 balance, per-chain note counts, and the published Baby Jubjub shielded address.](./assets/vault-transit-map.png)
 
 The reference wallet presents the pool as a transit map, where chains are stations and the pool is
@@ -54,10 +54,11 @@ C_src         = Poseidon(value, label, precommitment)
 nullifierHash = Poseidon(nullifier)
 ```
 
-`C_src` is inserted into a **fixed-depth** Merkle tree (Tornado-style `MerkleTreeWithHistory` with
-zero-subtree padding, deliberately *not* LeanIMT, whose free `actualDepth` witness permits
-truncation). The new root enters a rolling history buffer. The deposit reveals nothing about any
-future destination.
+A vetting fee is deducted first, so the committed `value` is the net amount. `C_src` is inserted into
+a **LeanIMT** state tree (`InternalLeanIMT`, proven in-circuit by `LeanIMTInclusionProof(32)`), whose
+depth is bounded by `MAX_TREE_DEPTH = 32` at insertion and again when a proof is verified. The new
+root enters a 64-slot circular history buffer (`ROOT_HISTORY_SIZE`). The deposit reveals nothing
+about any future destination.
 
 ### 2. Sender note construction (off-chain, stealth)
 
@@ -69,12 +70,13 @@ e   ← random scalar          E  = e·G            (ephemeral pubkey)
 ss  = e·V                    (recipient recomputes v·E)
 P   = B + Poseidon(ss)·G     (one-time owner key)
 r   = Poseidon(ss, 1)        (blinding)
-C_dest   = Poseidon(value, P, r)
-view tag = first byte of Poseidon(ss)            (cheap scan pre-filter)
+C_dest   = Poseidon(P.x, P.y, value, r)          (4-input; P enters as coordinates)
+view tag = Poseidon(ss) mod 256                  (low byte; cheap scan pre-filter)
 ```
 
 Because amounts travel in plaintext, the only secret that must reach the recipient is `E` plus the
-view tag. The "encrypted note blob" collapses to essentially the ephemeral pubkey.
+view tag. The "encrypted note blob" collapses to essentially the ephemeral pubkey. Both travel in the
+L1 `L2Note` event, **not** in the bridge message — see [step 4](#4-canonical-transport-one-or-two-ops-depending-on-the-family).
 
 > **Curve caveat:** `(B, V)` is a 5564-*shaped* meta-address, **not** a conformant EIP-5564 stealth
 > meta-address: different curve, different hash, no Announcer, and `P` is never an Ethereum
@@ -84,40 +86,65 @@ view tag. The "encrypted note blob" collapses to essentially the ephemeral pubke
 
 ### 3. Withdrawal proof (`withdrawL1`)
 
-One branch, always active.
+One branch, always active. **Withdrawals are partial**: a spend splits the note three ways rather
+than consuming it.
 
-**Public inputs:** L1 root, `nullifierHash`, ASP root, bridged `value`, `C_dest`, `E`, destination
-`chainId`, `l2Pool`, relayer address, fee.
+**Public signals — ten, ordered by the circuit's declaration order** (outputs first, then inputs —
+*not* the order in `component main {public [...]}`):
 
-**Private witnesses:** the L1 note preimage (`value`, `nullifier`, `secret`, `label`), the Merkle
-inclusion path, the ASP association path, `P`, `r`.
+| idx | signal | | idx | signal |
+|---|---|---|---|---|
+| 0 | `newCommitmentHashL1` — the L1 change note | | 5 | `stateRoot` |
+| 1 | `newCommitmentHashL2` — `C_dest` | | 6 | `stateTreeDepth` |
+| 2 | `existingNullifierHash` | | 7 | `ASPRoot` |
+| 3 | `withdrawnValue` — gross amount spent | | 8 | `ASPTreeDepth` |
+| 4 | `bridgedValue` — net delivered to L2 | | 9 | `context` |
+
+`E`, the view tag, `chainId`, `l2Pool`, the fee recipient and `relayFeeBPS` are **not** public
+inputs. They are bound transitively through
+`context = keccak256(abi.encode(Withdrawal{chainId, data}, SCOPE)) % p`, which `relay()` recomputes
+and rejects on mismatch (`ContextMismatch`).
+
+**Private witnesses:** the note preimage (`existingValue`, `existingNullifier`, `existingSecret`,
+`label`), the change-note secrets (`newNullifier`, `newSecret`), the recipient's spend key `B`, the
+shared secret `ss`, and both Merkle paths. `P` and `r` are *derived* in-circuit from `B` and `ss`
+rather than supplied.
 
 **Constraints:**
 
 | # | Constraint | Why |
 |---|---|---|
 | 1 | L1 inclusion: `C_src` under a public historical root | the note exists |
-| 2 | `nullifierHash = Poseidon(nullifier)`, correctly derived from the note | no double spend |
-| 3 | Spend authorization: the prover knows `(nullifier, secret)` | only the owner spends |
+| 2 | `existingNullifierHash = Poseidon(nullifier)`, derived from the same preimage | no double spend |
+| 3 | Spend authorization — implicit in 1–2: only the holder of `(nullifier, secret)` can open the commitment | only the owner spends |
 | 4 | ASP association: `label` is in the approved set | portable L1 compliance, checked once |
-| 5 | Conservation: bridged `value ==` the spent note's committed value | single output, no aggregate |
-| 6 | **Value binding**: the value field inside `C_dest` equals the public bridged `value` | without it, a prover mints unbacked L2 supply |
-| 7 | Anti-theft binding: relayer, fee, `chainId`, `l2Pool` bound as public inputs | a stolen proof cannot be re-targeted or re-priced |
+| 5 | **Conservation, three ways**: `remainingValue = existingValue − withdrawnValue` (128-bit range-checked, the underflow guard) becomes the L1 change note; `bridgedValue ≤ withdrawnValue`, the gap being the relay fee | two outputs, not one — and the contract pins the fee exactly (`BridgedValueMismatch`) |
+| 6 | Change-note freshness: `newNullifier ≠ existingNullifier` | a change note cannot reuse the burnt nullifier |
+| 7 | **Value binding**: `C_dest` is hashed over `bridgedValue` | without it, a prover mints unbacked L2 supply |
+| 8 | Anti-theft binding via `context`: `chainId`, `l2Pool`, fee recipient, `relayFeeBPS` | a stolen proof cannot be re-targeted or re-priced |
 
-`P` and `r` stay opaque witnesses. A botched stealth derivation only griefs the sender and can never
-threaten pool soundness, so nothing about the stealth math is constrained beyond the value field.
+A botched stealth derivation only griefs the sender and can never threaten pool soundness, so nothing
+about the stealth math is constrained beyond the value field.
 
 Proofs are generated **client-side** (in a Web Worker, `app/src/prover.worker.js`) and submitted to
 L1 by a relayer.
 
-### 4. Canonical transport: two ops that must reconcile
+### 4. Canonical transport: one or two ops, depending on the family
 
-On proof acceptance the L1 pool burns the note (`nullifierHash` marked spent) and emits two
-independent operations across the **canonical** messenger (this is the OP-Stack shape):
+On proof acceptance the L1 pool burns the note (`nullifierHash` marked spent) and hands value + note
+to the **canonical** bridge. How many operations that takes is family-specific, and **only OP-Stack
+takes two** — see [Bridge families](#bridge-families). The two-op case is described here because it
+is the hard one; the single-op families are a strict simplification of it.
+
+On OP-Stack, two independent operations across the canonical messenger:
 
 1. `bridgeERC20To(l2Pool, value)` moves the tokens.
-2. `sendMessage(l2Pool, receiveShieldedNote(C_dest, value, E))` carries the note. `value` rides in
+2. `sendMessage(l2Pool, IL2Pool.deposit(value, commitmentHash))` carries the note. `value` rides in
    cleartext because the pool cannot read it out of the hash.
+
+The message carries **only** `(value, C_dest)`. `E` and the view tag are not in it — the destination
+pool has no use for them. They are emitted on L1 as `L2Note(C_dest, ephemeralKey, viewTag)`, which is
+where recipients scan for them.
 
 They arrive in **separate transactions with no ordering guarantee**. The L2 pool enforces, entirely
 on-chain:
@@ -130,12 +157,23 @@ on-chain:
 - **Finality gate.** Free on OP-Stack: deposits derive from finalized L1 state, giving reorg safety
   across the whole path.
 
+Where delivery is a **single** op — every Starknet note, and native Arbitrum ones — none of the
+reconciliation above is needed. The tokens are already credited when the note handler runs, so the
+backing check passes inline and the note is inserted and spendable in the **same transaction**
+(`NoteReceived` and `NoteActivated` emit together). There is nothing to scan for and no second
+transaction to send.
+
 ### 5. Recipient spend (L2)
 
-The recipient scans L2 pool insertions with the view key: the view-tag byte filters cheaply, then
-`v·E` confirms `ss` and recomputes `P`. To spend, they derive `b + Poseidon(ss)` and open the
-Poseidon ownership constraint **inside** the L2 circuit. It is a witness, never an Ethereum
-signature.
+Scanning is a **two-chain join**. The stealth material and the value are emitted on different chains
+and the recipient needs both halves: `(E, viewTag)` from the L1 `L2Note` event, joined on `C_dest`
+with the cleartext `value`, which only exists once the tokens land on the destination
+(`buildScannableNotes` in `app/server/pool-events.mjs`). A delivery with no matching arrival is
+dropped — the bridge has not settled yet.
+
+Given the join, the view-tag byte filters cheaply, then `v·E` confirms `ss` and recomputes `P`. To
+spend, they derive `b + Poseidon(ss)` and open the Poseidon ownership constraint **inside** the L2
+circuit. It is a witness, never an Ethereum signature.
 
 This is why Baby Jubjub is forced and secp256k1 is not: the spend key authorizes a commitment
 opening in-circuit; it does not sign a transaction.
@@ -160,10 +198,13 @@ divergence lives only in the wallet.
 
 ### What is explicitly out of scope
 
-**Value privacy.** Amounts are forwarded in plaintext; conservation is one in-circuit equality per
-withdrawal. There is no aggregate sum, no range proof, no wraparound vector. The consequence is that
-with variable denominations **the amount is the dominant residual leak**: unlinkability is bounded
-to the set of same-amount deposits. This is an accepted trade-off, not an oversight.
+**Value privacy.** Amounts are forwarded in plaintext and every withdrawal publishes `withdrawnValue`.
+Conservation is enforced by in-circuit range checks and an ordering constraint; there is no blinded
+aggregate, no range proof over a hidden sum, no wraparound vector. **The amount is the dominant
+residual leak** — though weaker than a same-denomination bound: because withdrawals are partial and
+the change note's value is never emitted (only its commitment hash), a published `withdrawnValue = W`
+is consistent with spending *any* unspent note of value **≥ W**. The candidate set is
+`{unspent notes ≥ W}`, not `{notes = W}`. This is an accepted trade-off, not an oversight.
 
 ---
 
@@ -181,7 +222,6 @@ packages/
   sdk/             TypeScript toolkit: proving, notes, scanning, relay calls
   relayer/         Express + SQLite relayer: fee quotes, proof submission
 app/               Reference UI (Vite client) + API boundary (Node server)
-circom/            Circom tooling and docs
 assets/            README images
 ops/               Deployment check scripts and charts
 ```
@@ -218,7 +258,9 @@ ops/               Deployment check scripts and charts
 
 - Node.js and Yarn (Yarn workspaces)
 - [Foundry](https://book.getfoundry.sh/) for contracts
-- `circom` + `snarkjs` for circuit work
+- [`circom`](https://github.com/iden3/circom/releases/tag/v2.2.1) **v2.2.1** + `snarkjs` for
+  circuit work. Install the released binary; CI pins the same version
+  (`.github/workflows/circuits.yml`). Do not vendor the compiler source into this repo.
 - `scarb` 2.16.1 / `starknet-foundry` 0.57.0 for the Cairo pool (pinned in
   `packages/starknet-pool/.tool-versions`)
 
@@ -254,7 +296,7 @@ sender can never hold the recipient's private keys.
 cp packages/relayer/config.sepolia.example.json /private/path/config.sepolia.json
 # fill in the deployed Entrypoint, fee receiver, and relayer key
 CONFIG_PATH=/private/path/config.sepolia.json PORT=8788 \
-  yarn workspace @privacy-pool-core/relayer build:start
+  yarn workspace @f5/relayer build:start
 ```
 
 The app proxies `/api/relayer/quote` and `/api/relayer/request` to it. The app's own `/api/relay`
@@ -264,18 +306,18 @@ route is an SDK-backed fallback and **must never be exposed without a server-sid
 
 ```bash
 # circuits
-yarn workspace @privacy-pool-core/circuits compile
-yarn workspace @privacy-pool-core/circuits setup:all      # ptau + zkeys
-yarn workspace @privacy-pool-core/circuits test
+yarn workspace @f5/circuits compile
+yarn workspace @f5/circuits setup:all      # ptau + zkeys
+yarn workspace @f5/circuits test
 
 # contracts
-yarn workspace @privacy-pool-core/contracts build
-yarn workspace @privacy-pool-core/contracts test:unit
-yarn workspace @privacy-pool-core/contracts test:integration
+yarn workspace @f5/contracts build
+yarn workspace @f5/contracts test:unit
+yarn workspace @f5/contracts test:integration
 
 # sdk / relayer
-yarn workspace @0xbow/privacy-pools-core-sdk test
-yarn workspace @privacy-pool-core/relayer test
+yarn workspace @f5/privacy-pool-sdk test
+yarn workspace @f5/relayer test
 
 # app
 yarn --cwd app test:server
@@ -304,8 +346,23 @@ destination chain is a Registry config row; adding a destination *family* is one
 | Code path | `_bridgeOpStack` | `_bridgeArbitrum` | `_bridgeStarknet` |
 
 Arbitrum has no L2 messenger, so the note arrives as a direct call whose `msg.sender` is the L1
-pool's *aliased* address, hence the `AddressAliasHelper` check. Arbitrum **native ETH collapses to a
-single retryable** carrying value as `l2CallValue`, so it delivers one op, not two.
+pool's *aliased* address, hence the `AddressAliasHelper` check.
+
+**Op count per family** — this is what decides whether activation is a separate step:
+
+| Family | L1 ops | Activation |
+|---|---|---|
+| OP-Stack | 2 (always) | separate transaction, after the backing lands |
+| Arbitrum | **1** native / 2 ERC20 | inline for native (`l2CallValue` is credited with the ticket); separate for ERC20 |
+| Starknet | **1** (always) | **inline, always** |
+
+Arbitrum **native ETH collapses to a single retryable** carrying value as `l2CallValue`, so it
+delivers one op, not two. **Starknet is single-op in every case**: `depositWithMessage` carries the
+commitment as its message payload, and StarkGate credits the tokens *before* invoking the pool's
+authenticated `on_receive`, which activates the note in the same call. `activate_note` on the Cairo
+pool is therefore unreachable on Starknet today: the only path that could leave a note pending is the
+superseded `#[l1_handler] receive_note` entrypoint, and no L1 code sends the raw Starknet Core message
+that would invoke it.
 
 **Fee model.** `relay` is `payable`. Arbitrum and Starknet charge for L1→L2 execution up front, so
 the **relayer prepays it as `msg.value`** and the pool refunds the excess (`msg.value − feeSpent`).
@@ -418,8 +475,13 @@ It remains available after the pool is wound down, so depositors retain an exit 
 - **Portable L1 compliance.** ASP association is checked once at L1 and inherited by the delivered L2
   note. No standing committee, no subpoenable quorum, no permanent ciphertexts enabling retroactive
   de-anonymization.
-- **Fixed-depth tree.** Zero-subtree padding on L1; LeanIMT's truncation vector is excluded by
-  construction.
+- **Bounded-depth LeanIMT.** The L1 state tree is a LeanIMT, not a fixed-depth zero-padded tree.
+  Depth is bounded twice on-chain — `State._insert` reverts `MaxTreeDepthReached` past
+  `MAX_TREE_DEPTH = 32`, and `relay()` rejects a proof declaring a larger `stateTreeDepth` /
+  `ASPTreeDepth` (`InvalidTreeDepth`). In-circuit, `actualDepth` is constrained only by
+  `LessEqThan(6)` against `maxDepth`; what stands between that free witness and a forged inclusion
+  proof is hash-arity domain separation (3-input `PoseidonT4` leaves vs 2-input internal nodes).
+  That argument is standard but is **not yet written up or tested here** — see open item 5.
 - **Fail-closed destination gating.** The Cairo pool's `l1_pool` is immutable and set in its
   constructor. If it is not bound to *our* L1 pool, a relay is a trap. StarkGate still delivers the
   ETH but the note message reverts `NotL1Pool`, so value lands with no note that can ever claim it,
@@ -476,6 +538,11 @@ relayer; ERC-6538 publishing; server-side Garaga calldata conversion (no Python 
 4. **Committee-free amount privacy.** Incremental/recursive folding where each user folds their own
    hidden value and only the per-chain sum is revealed. v2, only if amount privacy becomes
    non-negotiable.
+5. **LeanIMT truncation: write up the argument or change the construction.** `actualDepth` is a free
+   witness bounded only from above, and the defence is cross-arity Poseidon collision resistance
+   rather than structural padding. Needed: an explicit statement of the claim, a negative test that a
+   forged internal-node-as-leaf proof is rejected, and a decision on whether to keep the bounded
+   design or move to genuine fixed-depth padding. Cheap relative to its blast radius.
 
 ---
 

@@ -71,6 +71,10 @@ export class KeyedConcurrencyLimiter {
  * clients and head snapshots. Refresh rolls back the trailing reorg window before
  * refetching it; merely deduplicating is insufficient because a reorg can remove a
  * previously cached log altogether.
+ *
+ * `chunkBlocks` here is only the fallback: callers pass a per-chain width per read
+ * (`config.logChunkBlocks`), because both the right value and the provider's ceiling
+ * vary by chain. See that function for the measurements.
  */
 export class EventIndex {
   constructor({
@@ -123,7 +127,7 @@ export class EventIndex {
     return state.inFlight;
   }
 
-  async refresh(state, { chain, rpcUrl, address, event, events, fromBlock, force = false }) {
+  async refresh(state, { chain, rpcUrl, address, event, events, fromBlock, chunkBlocks, force = false }) {
     const head = await this.runtime.head(chain, rpcUrl, { force });
     if (!force && state.lastHead === head) {
       this.runtime.metrics.cache.eventHits += 1;
@@ -138,7 +142,7 @@ export class EventIndex {
     // removal of logs when a shallow reorg changes blocks in the trailing window.
     const retained = state.logs.filter((log) => log.blockNumber < start);
     const fresh = start <= head
-      ? await this.fetchRange({ chain, rpcUrl, address, event, events, fromBlock: start, toBlock: head })
+      ? await this.fetchRange({ chain, rpcUrl, address, event, events, fromBlock: start, toBlock: head, chunkBlocks })
       : [];
     const seen = new Set(retained.map(logId));
     for (const log of fresh) {
@@ -156,11 +160,23 @@ export class EventIndex {
     return state.logs;
   }
 
-  async fetchRange({ chain, rpcUrl, address, event, events, fromBlock, toBlock }) {
+  /**
+   * The chunk width for one stream: the caller's per-chain value when it has one,
+   * otherwise this index's default. Guarded against a non-positive override, which
+   * would advance `start` by zero blocks and spin forever.
+   */
+  chunkFor(chunkBlocks) {
+    if (chunkBlocks === undefined || chunkBlocks === null) return this.chunkBlocks;
+    const width = BigInt(chunkBlocks);
+    return width > 0n ? width : this.chunkBlocks;
+  }
+
+  async fetchRange({ chain, rpcUrl, address, event, events, fromBlock, toBlock, chunkBlocks }) {
     const client = this.runtime.client(chain, rpcUrl);
+    const width = this.chunkFor(chunkBlocks);
     const logs = [];
-    for (let start = fromBlock; start <= toBlock; start += this.chunkBlocks + 1n) {
-      const end = start + this.chunkBlocks > toBlock ? toBlock : start + this.chunkBlocks;
+    for (let start = fromBlock; start <= toBlock; start += width + 1n) {
+      const end = start + width > toBlock ? toBlock : start + width;
       logs.push(...await this.limiter.run(
         chain,
         () => this.retry(() => client.getLogs({

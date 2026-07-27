@@ -11,14 +11,14 @@ import { getL1, MULTICALL3_ADDRESS, REORG_BUFFER } from "./config.mjs";
 import { EventIndex } from "./event-index.mjs";
 import {
   depositedEvent,
-  depositedKey,
-  l2NoteEvent,
-  l2NoteKey,
+  l1PoolEvents,
+  l1PoolKey,
   noteLifecycleEvents,
   noteLifecycleKey,
   parseCommitmentValueLog,
   parseDepositLog,
   parseL2NoteLog,
+  parseL2WithdrawnLog,
   scopeAbi,
 } from "./pool-events.mjs";
 import { retryRpc } from "./rpc-retry.mjs";
@@ -57,6 +57,22 @@ export function readL1Event(event, eventKey, { force = false } = {}) {
     event,
     eventKey,
     fromBlock: l1.deploymentBlock,
+    chunkBlocks: l1.logChunkBlocks,
+    force,
+  });
+}
+
+/** Read the pool's complete public event surface through one shared cursor. */
+export function readL1PoolEvents({ force = false } = {}) {
+  const l1 = getL1();
+  return eventIndex.read({
+    chain: `evm:${l1.chainId}`,
+    rpcUrl: l1.rpcUrl,
+    address: l1.poolAddress,
+    events: l1PoolEvents,
+    eventKey: l1PoolKey,
+    fromBlock: l1.deploymentBlock,
+    chunkBlocks: l1.logChunkBlocks,
     force,
   });
 }
@@ -64,15 +80,33 @@ export function readL1Event(event, eventKey, { force = false } = {}) {
 export async function getDepositEvents({ force = false } = {}) {
   const l1 = getL1();
   if (!l1.rpcUrl || !l1.poolAddress) throw new Error("Pool indexing is not configured");
-  return (await readL1Event(depositedEvent, depositedKey, { force })).map(parseDepositLog);
+  return (await readL1PoolEvents({ force }))
+    .filter((log) => log.eventName === depositedEvent.name)
+    .map(parseDepositLog);
+}
+
+/**
+ * Every event that makes an L1 note unspendable, indexed as one RPC log stream.
+ *
+ * Keeping Withdrawn and Ragequit together avoids scanning the same L1 block ranges
+ * twice. Consumers partition the cached logs locally, which costs no RPC calls.
+ */
+export async function readL1SpendEvents({ force = false } = {}) {
+  const logs = await readL1PoolEvents({ force });
+  return {
+    withdrawals: logs.filter((log) => log.eventName === "Withdrawn"),
+    ragequits: logs.filter((log) => log.eventName === "Ragequit"),
+  };
 }
 
 /** The Mode-3 stealth deliveries emitted on L1, for every destination. */
 export async function readL1L2Notes() {
-  return (await readL1Event(l2NoteEvent, l2NoteKey)).map(parseL2NoteLog);
+  return (await readL1PoolEvents())
+    .filter((log) => log.eventName === "L2Note")
+    .map(parseL2NoteLog);
 }
 
-/** Read and partition both destination note lifecycle events with one log filter. */
+/** Read and partition all three destination note lifecycle events with one log filter. */
 export async function readEvmL2NoteEvents(chain) {
   const logs = await eventIndex.read({
     chain: `evm:${chain.chainId}`,
@@ -81,19 +115,23 @@ export async function readEvmL2NoteEvents(chain) {
     events: noteLifecycleEvents,
     eventKey: noteLifecycleKey,
     fromBlock: BigInt(chain.deploymentBlock ?? "0"),
+    chunkBlocks: chain.logChunkBlocks,
   });
   const received = [];
   const activated = [];
+  const spent = [];
   for (const log of logs) {
     if (log.eventName === "NoteReceived") {
       received.push(parseCommitmentValueLog(log, "NoteReceived"));
     } else if (log.eventName === "NoteActivated") {
       activated.push(parseCommitmentValueLog(log, "NoteActivated"));
+    } else if (log.eventName === "Withdrawn") {
+      spent.push(parseL2WithdrawnLog(log));
     } else {
       throw new Error(`Unexpected L2 note lifecycle event ${String(log.eventName)}`);
     }
   }
-  return { received, activated };
+  return { received, activated, spent };
 }
 
 /** A pool's SCOPE never changes, so it is cached without expiry. */

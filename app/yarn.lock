@@ -2,10 +2,6 @@
 # yarn lockfile v1
 
 
-"@0xbow/privacy-pools-core-sdk@link:../packages/sdk":
-  version "0.0.0"
-  uid ""
-
 "@adraffy/ens-normalize@1.10.1":
   version "1.10.1"
   resolved "https://registry.yarnpkg.com/@adraffy/ens-normalize/-/ens-normalize-1.10.1.tgz#63430d04bd8c5e74f8d7d049338f1cd9d4f02069"
@@ -145,6 +141,10 @@
   version "0.25.12"
   resolved "https://registry.yarnpkg.com/@esbuild/win32-x64/-/win32-x64-0.25.12.tgz#9bdad8176be7811ad148d1f8772359041f46c6c5"
   integrity sha512-alJC0uCZpTFrSL0CCDjcgleBXPnCrEAhTBILpeAp7M/OFgoqtAetfBzX0xM00MUsVVPpVjlPuMbREqnZCXaTnA==
+
+"@f5/privacy-pool-sdk@link:../packages/sdk":
+  version "0.0.0"
+  uid ""
 
 "@iden3/bigarray@0.0.2":
   version "0.0.2"

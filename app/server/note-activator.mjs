@@ -214,19 +214,26 @@ export class AutomaticNoteActivator {
 
   async runTick(destination) {
     const state = this.state(destination);
+    const startedAt = this.now();
+    this.logger.log(`[l2-auto-activate] ${destination.label} scan started`);
     try {
       const scanned = await this.scan(destination);
+      const planned = planBackedActivations(scanned);
       state.pending = countPending(scanned);
       state.scanned = true;
       state.failures = 0;
 
-      for (const note of planBackedActivations(scanned)) {
+      let activated = 0;
+      let activationFailures = 0;
+      for (const note of planned) {
         try {
           const result = await this.activate(destination, note);
+          activated += 1;
           this.logger.log(
             `[l2-auto-activate] ${destination.label} activated ${note.commitment} (${result?.txHash ?? "no hash"})`,
           );
         } catch (error) {
+          activationFailures += 1;
           // One rejected note must not abandon the rest of the batch. The relayer
           // refuses anything it finds unbacked, which is expected while a bridge
           // transfer is still settling — it will be retried on the next tick.
@@ -236,6 +243,15 @@ export class AutomaticNoteActivator {
           );
         }
       }
+
+      const elapsedMs = Math.max(0, this.now() - startedAt);
+      const nextIntervalMs = this.intervalFor(destination);
+      this.logger.log(
+        `[l2-auto-activate] ${destination.label} scan complete in ${elapsedMs}ms: ` +
+          `${scanned.received.length} received, ${scanned.activated.length} already activated, ` +
+          `${state.pending} pending, ${planned.length} eligible, ${activated} activated, ` +
+          `${activationFailures} activation failures; next scan in ${nextIntervalMs}ms`,
+      );
     } catch (error) {
       // Scanning failed (RPC down, pool unreachable). Retried next tick. `pending` is
       // deliberately left as it was: a failed scan is not evidence of an empty pool,
@@ -243,8 +259,11 @@ export class AutomaticNoteActivator {
       // least able to afford the extra latency. Repeated failures do back it off —
       // see `intervalFor` — so a permanently broken destination cannot poll forever.
       state.failures += 1;
+      const elapsedMs = Math.max(0, this.now() - startedAt);
+      const nextIntervalMs = this.intervalFor(destination);
       this.logger.warn(
-        `[l2-auto-activate] ${destination.label} scan failed:`,
+        `[l2-auto-activate] ${destination.label} scan failed after ${elapsedMs}ms ` +
+          `(failure ${state.failures}; next attempt in ${nextIntervalMs}ms):`,
         error instanceof Error ? error.message : error,
       );
     }

@@ -1,10 +1,10 @@
 {
-  "name": "@privacy-pool-core/circuits",
+  "name": "@f5/circuits",
   "version": "1.0.0",
   "description": "Circom circuits for the Privacy Pool protocol",
-  "repository": "https://github.com/defi-wonderland/privacy-pool-core",
+  "repository": "https://github.com/merkle-groot/cutout",
   "license": "Apache-2.0",
-  "author": "Wonderland",
+  "author": "f5",
   "scripts": {
     "compile": "npx ts-node ./src/index.ts",
     "test": "npx mocha",
@@ -47,5 +47,8 @@
     "mocha": "^10.2.0",
     "ts-node": "^10.9.1",
     "typescript": "5.5.4"
-  }
+  },
+  "contributors": [
+    "Wonderland (original @privacy-pool-core/circuits)"
+  ]
 }

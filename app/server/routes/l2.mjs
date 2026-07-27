@@ -9,7 +9,7 @@ import { Router } from "express";
 import { getL1, requireEvmL2 } from "../config.mjs";
 import { destinationSigner } from "../destinations.mjs";
 import { evmL2Scope, multicall, readEvmL2NoteEvents, readL1L2Notes } from "../evm-reads.mjs";
-import { errorMessage } from "../http.mjs";
+import { errorMessage, parseCommitment, sendJson } from "../http.mjs";
 import {
   buildScannableNotes,
   l2StatusAbi,
@@ -44,7 +44,7 @@ l2Router.get("/:chain/index", async (req, res) => {
       readEvmL2NoteEvents(chain),
       evmL2Scope(chain),
     ]);
-    const { received, activated } = lifecycle;
+    const { received, activated, spent } = lifecycle;
 
     const candidates = buildScannableNotes(deliveries, received);
     const tree = reconstructL2StateTree(activated);
@@ -58,7 +58,11 @@ l2Router.get("/:chain/index", async (req, res) => {
       };
     });
 
-    return res.json({
+    // sendJson stringifies bigints wherever they appear, which is what the proofs
+    // (nested sibling arrays) need. Serializing them here by round-tripping through
+    // JSON.parse(JSON.stringify(...)) reimplemented that replacer inline and paid for
+    // a whole extra parse of the result.
+    return sendJson(res, {
       configured: true,
       scope: scope.toString(),
       stateRoot: (tree.root ?? 0n).toString(),
@@ -68,9 +72,11 @@ l2Router.get("/:chain/index", async (req, res) => {
         value: note.value.toString(),
         ephemeralKey: note.ephemeralKey.map((part) => part.toString()),
       })),
-      proofs: JSON.parse(
-        JSON.stringify(proofs, (_key, value) => (typeof value === "bigint" ? value.toString() : value)),
-      ),
+      proofs,
+      // Published alongside the proofs deliberately: a proof only says the leaf is in
+      // the tree, which stays true forever after the note is spent. A client that reads
+      // `proofs` without subtracting these offers stale notes the pool will reject.
+      spentNullifiers: spent.map((event) => event.spentNullifier.toString()),
     });
   } catch (error) {
     console.warn(`[L2 INDEX ERROR ${chain.key}]`, error instanceof Error ? error.stack : error);
@@ -107,7 +113,7 @@ l2Router.get("/:chain/status/:commitment", async (req, res) => {
   const chain = resolve(req, res);
   if (!chain) return undefined;
   try {
-    const commitment = BigInt(req.params.commitment);
+    const commitment = parseCommitment(req.params.commitment);
     const [received, pendingValue, currentRoot] = await multicall(chain, [
       { address: chain.poolAddress, abi: l2StatusAbi, functionName: "receivedCommitments", args: [commitment] },
       { address: chain.poolAddress, abi: l2StatusAbi, functionName: "pendingValue", args: [commitment] },
@@ -126,7 +132,11 @@ l2Router.get("/:chain/status/:commitment", async (req, res) => {
           : "activated",
     });
   } catch (error) {
-    return res.status(502).json({ error: errorMessage(error, "Unable to read L2 status") });
+    // `error.status` so a malformed commitment stays a 400 instead of being
+    // reported as an upstream chain failure.
+    return res
+      .status(error.status ?? 502)
+      .json({ error: errorMessage(error, "Unable to read L2 status") });
   }
 });
 

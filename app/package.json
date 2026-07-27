@@ -12,7 +12,7 @@
     "test:server": "node --test server/*.test.mjs src/*.test.mjs"
   },
   "dependencies": {
-    "@0xbow/privacy-pools-core-sdk": "link:../packages/sdk",
+    "@f5/privacy-pool-sdk": "link:../packages/sdk",
     "@scure/bip39": "1.5.4",
     "@wagmi/core": "2.16.4",
     "cors": "^2.8.5",

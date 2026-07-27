@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { WithdrawalProof } from "@0xbow/privacy-pools-core-sdk";
+import { WithdrawalProof } from "@f5/privacy-pool-sdk";
 import { RelayerError } from "../../exceptions/base.exception.js";
 
 /**

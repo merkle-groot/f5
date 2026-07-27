@@ -28,11 +28,11 @@ const L2_HISTORY_KEY = "f5-l2-history-v1";
 const LEGACY_NOTE_PREFIX = "f5-note-";
 
 export const IDENTITY_UNWRAP_MESSAGE =
-  "F5 identity — sign once to unlock your shielded identity on this device.";
+  "f5 identity — sign once to unlock your shielded identity on this device.";
 /** Pre-mnemonic vaults encrypted each note directly under a wallet signature. */
 const LEGACY_MESSAGES = [
-  "F5 note vault key — sign once to unlock your local notes.",
-  "F5 note vault key — sign once to encrypt this note locally.",
+  "f5 note vault key — sign once to unlock your local notes.",
+  "f5 note vault key — sign once to encrypt this note locally.",
 ];
 
 const enc = new TextEncoder();

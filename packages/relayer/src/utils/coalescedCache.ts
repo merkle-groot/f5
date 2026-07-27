@@ -23,7 +23,10 @@ export class CoalescedTtlCache<K, V> {
     if (!force && entry.hasValue && this.now() - entry.fetchedAt < this.ttlMs) {
       return entry.value as V;
     }
-    if (entry.inFlight) return entry.inFlight;
+    // `!force`: joining the in-flight load is the whole point of coalescing, but a
+    // caller that asked for fresh data would otherwise silently receive the result of
+    // a load that started before it asked — which is exactly what `force` rules out.
+    if (!force && entry.inFlight) return entry.inFlight;
 
     entry.inFlight = loader()
       .then((value) => {

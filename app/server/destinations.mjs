@@ -7,18 +7,11 @@
  * the relayer holds the keys, re-verifies each nomination against fresh chain state,
  * and signs. Neither component polls the other's job.
  */
-import {
-  getEvmL2s,
-  getScanConfig,
-  getStarknetConfig,
-  starknetConfigured,
-  STARKNET_DESTINATION_KEY,
-} from "./config.mjs";
+import { getEvmL2s, getScanConfig } from "./config.mjs";
 import { multicall, readEvmL2NoteEvents } from "./evm-reads.mjs";
 import { l2BackingAbi } from "./pool-events.mjs";
 import { fetchFromRelayer } from "./relayer-proxy.mjs";
 import { rpcRuntime } from "./rpc-runtime.mjs";
-import { getNoteLifecycleEvents, getStarknetProvider, getTokensReceived } from "./starknet-reads.mjs";
 
 /**
  * Whether the relayer can sign for a destination, and with which address.
@@ -48,25 +41,20 @@ export async function scanEvmDestination(chain) {
   return { ...lifecycle, activatedSupply, tokensReceived };
 }
 
-export async function scanStarknetDestination(config) {
-  const provider = getStarknetProvider(config);
-  const [lifecycle, tokensReceived] = await Promise.all([
-    getNoteLifecycleEvents(provider, config),
-    getTokensReceived(provider, config),
-  ]);
-  const { received, activated } = lifecycle;
-  return {
-    received,
-    activated,
-    tokensReceived,
-    // The Cairo pool exposes no `activated_supply` getter, so it is summed from the
-    // activation events — equal by construction, since each activation emits once.
-    activatedSupply: activated.reduce((total, event) => total + event.value, 0n),
-  };
-}
-
 /**
  * The destinations to scan, all paced at the same active interval.
+ *
+ * EVM only, deliberately. Starknet is NOT scanned: `_bridgeStarknet` delivers value and
+ * commitment in one `depositWithMessage`, StarkGate credits the tokens before invoking
+ * `on_receive`, and `_try_activate` therefore succeeds inline — a Starknet note is
+ * spendable in its delivery transaction and never sits pending. The Cairo pool's
+ * `#[l1_handler] receive_note` entrypoint is the only path that could leave one pending,
+ * and nothing can reach it: no L1 code sends a raw Starknet Core message, and the handler
+ * asserts `from_address == l1_pool` so no third party can drive it either.
+ *
+ * Scanning it anyway cost four RPC reads per idle tick, forever, to confirm a state that
+ * cannot arise. If a raw Core-message path is ever restored on L1, re-add a destination
+ * here that scans `NoteReceived`/`NoteActivated` and `tokens_received_from_bridge`.
  */
 export function activationDestinations() {
   const { enabled, pollMs, idlePollMs, activeWindowMs } = getScanConfig();
@@ -82,17 +70,5 @@ export function activationDestinations() {
     scan: () => scanEvmDestination(chain),
   }));
 
-  if (starknetConfigured()) {
-    const starknet = getStarknetConfig();
-    destinations.push({
-      id: "starknet",
-      key: STARKNET_DESTINATION_KEY,
-      label: starknet.chainName,
-      pollMs,
-      idlePollMs,
-      activeWindowMs,
-      scan: () => scanStarknetDestination(starknet),
-    });
-  }
   return destinations;
 }

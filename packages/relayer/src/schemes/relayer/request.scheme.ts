@@ -43,7 +43,6 @@ export const zFeeCommitment = z.object({
   withdrawalData: zHex,
   asset: zAddress,
   signedRelayerCommitment: zHex,
-  extraGas: z.boolean(),
   amount: zNonNegativeBigInt
 });
 

@@ -6,7 +6,7 @@
  * to the relayer.
  */
 import { Router } from "express";
-import { Circuits, PrivacyPoolSDK } from "@0xbow/privacy-pools-core-sdk";
+import { Circuits, PrivacyPoolSDK } from "@f5/privacy-pool-sdk";
 import { automaticNoteActivator } from "../activator.mjs";
 import { getL1, relayerApiUrl } from "../config.mjs";
 import { errorMessage } from "../http.mjs";
@@ -50,7 +50,7 @@ miscRouter.get("/quote", (_req, res) => {
     feeBps: feeBps / 100,
     feeLabel: `${feeBps / 100}%`,
     gasCovered: true,
-    relayer: process.env.RELAYER_NAME ?? "F5",
+    relayer: process.env.RELAYER_NAME ?? "f5",
   });
 });
 

@@ -169,7 +169,12 @@ export class TestnetAspService {
         functionName: "latestRoot",
       });
     } catch (error) {
-      console.warn(`[testnet-asp] no existing ASP root on chain ${chainId}; publishing the first root`);
+      // Keep the reason: an empty association set is the expected case, but an RPC
+      // or ABI fault reaches here identically and would otherwise be invisible.
+      console.warn(
+        `[testnet-asp] no existing ASP root on chain ${chainId}; publishing the first root:`,
+        error instanceof Error ? error.message : error,
+      );
     }
     if (currentRoot === tree.root) return;
     const cid = process.env.TESTNET_ASP_IPFS_CID ?? "testnet-asp-root-all-labels-placeholder";

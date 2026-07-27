@@ -22,6 +22,33 @@ export const STARKNET_DESTINATION_KEY = process.env.STARKNET_DESTINATION_KEY ?? 
 
 export const port = () => Number(process.env.PORT ?? 8787);
 
+/**
+ * Blocks per `eth_getLogs` request for one chain.
+ *
+ * Per-chain because the right value is a function of two things that differ per chain:
+ * how fast it mints blocks (Arbitrum's ~0.25s means ~8x the blocks of OP/Base over the
+ * same wall-clock age, and `EventIndex.fetchRange` walks chunks sequentially), and what
+ * its RPC endpoint will actually serve — measured on drpc's testnet endpoints, L1/OP/Arb
+ * Sepolia answer a 500k range while Base Sepolia rejects 200k with a code-19 that
+ * survives retries. A single global value has to be the minimum over every endpoint,
+ * which taxes the one chain that most needs a large chunk.
+ *
+ * `<KEY>_LOG_CHUNK_BLOCKS` overrides `LOG_CHUNK_BLOCKS`, which overrides the 9000
+ * default. A garbage or non-positive value falls back rather than producing a zero-width
+ * chunk, which would make `fetchRange` loop forever.
+ */
+export function logChunkBlocks(prefix) {
+  for (const value of [prefix ? process.env[`${prefix}_LOG_CHUNK_BLOCKS`] : undefined,
+                       process.env.LOG_CHUNK_BLOCKS]) {
+    if (value === undefined || value === "") continue;
+    try {
+      const parsed = BigInt(value);
+      if (parsed > 0n) return parsed;
+    } catch { /* not an integer; fall through to the next source */ }
+  }
+  return 9000n;
+}
+
 /** The L1 pool this app is pointed at. */
 export function getL1() {
   return {
@@ -36,6 +63,7 @@ export function getL1() {
     decimals: Number(process.env.ASSET_DECIMALS ?? 18),
     scope: process.env.POOL_SCOPE ?? "",
     explorerUrl: explorerUrl(process.env.EXPLORER_URL),
+    logChunkBlocks: logChunkBlocks(),
   };
 }
 
@@ -84,6 +112,7 @@ export function getEvmL2s() {
         deploymentBlock: process.env[`${P}_DEPLOYMENT_BLOCK`] ?? "0",
         blockTimeMs: Number(process.env[`${P}_BLOCK_TIME_MS`] ?? 2_000),
         explorerUrl: explorerUrl(process.env[`${P}_EXPLORER_URL`]),
+        logChunkBlocks: logChunkBlocks(P),
         // No signing key. Whether a destination can be signed for is reported by the
         // relayer via `/relayer/destinations/:key`, never inferred from local state.
       };
@@ -124,20 +153,34 @@ export const starknetConfigured = () => {
   return Boolean(c.rpcUrl && c.poolAddress);
 };
 
+/**
+ * A duration read from the environment, falling back when it is absent or garbage.
+ *
+ * Every one of these knobs ends up as a `setTimeout` delay, and `Number("")`,
+ * `Number("30s")` and a negative value each produce a timer that fires immediately
+ * and forever — a typo in one env var turns the scanner into a hot loop against a
+ * metered RPC endpoint. Bounds are applied here so no caller can skip them.
+ */
+function durationMs(value, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  return Math.min(Math.max(parsed, min), max);
+}
+
 /** Auto-activation scanning knobs. See `note-activator.mjs` for how they are used. */
 export function getScanConfig() {
-  const configuredPollMs = Number(process.env.L2_SCAN_POLL_MS ?? 15_000);
   return {
     enabled: process.env.L2_AUTO_ACTIVATE !== "false",
     // One active cadence for every destination. Keeping this independent of block
     // time makes retry latency predictable across EVM chains and Starknet.
-    pollMs: Number.isFinite(configuredPollMs) && configuredPollMs > 0
-      ? Math.min(Math.max(configuredPollMs, 2_000), 120_000)
-      : 15_000,
+    pollMs: durationMs(process.env.L2_SCAN_POLL_MS ?? 15_000, 15_000, {
+      min: 2_000,
+      max: 120_000,
+    }),
     // How slowly to scan a destination with nothing pending. This is the single
     // biggest lever on RPC spend: an idle destination polled at block time costs
     // millions of requests a month to learn that nothing happened.
-    idlePollMs: Number(process.env.L2_IDLE_POLL_MS ?? 60_000),
+    idlePollMs: durationMs(process.env.L2_IDLE_POLL_MS ?? 60_000, 60_000, { min: 2_000 }),
     // How long an accepted L1 relay keeps destinations at the fast cadence.
     //
     // OFF by default, and that is a measured decision rather than caution. The app
@@ -148,8 +191,12 @@ export function getScanConfig() {
     // settlement. `idlePollMs` discovery plus the pending-notes signal covers it.
     //
     // Set this only if you need sub-`idlePollMs` activation and have priced it.
-    activeWindowMs: Number(process.env.L2_ACTIVE_WINDOW_MS ?? 0),
+    activeWindowMs: durationMs(process.env.L2_ACTIVE_WINDOW_MS ?? 0, 0),
   };
 }
+
+/** Shared L1 pool-event heartbeat. One incremental scan serves every browser. */
+export const l1SpendScanMs = () =>
+  durationMs(process.env.L1_SPEND_SCAN_MS ?? 60_000, 60_000, { min: 5_000 });
 
 export const relayerApiUrl = () => process.env.RELAYER_API_URL ?? "";

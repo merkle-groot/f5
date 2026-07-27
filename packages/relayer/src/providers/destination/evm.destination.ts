@@ -5,7 +5,7 @@ import {
   ContractInteractionsService,
   PrivacyPoolSDK,
   WithdrawalProof,
-} from "@0xbow/privacy-pools-core-sdk";
+} from "@f5/privacy-pool-sdk";
 import { EvmDestinationConfig } from "../../config/types.js";
 import { DestinationError } from "../../exceptions/base.exception.js";
 import { createChainObject } from "../../utils.js";
@@ -127,9 +127,15 @@ export class EvmDestinationProvider implements DestinationProvider {
     return `evm:${this.chainId}:${this.signerAddress()?.toLowerCase() ?? "none"}`;
   }
 
-  async activateNote(commitment: bigint): Promise<DestinationTransaction> {
+  async activateNote(
+    commitment: bigint,
+    verify?: () => Promise<void>,
+  ): Promise<DestinationTransaction> {
     const contracts = this.requireContracts();
     return this.queue.run(this.queueKey(), async () => {
+      // Inside the queue: any activation ahead of this one has already confirmed,
+      // so the backing this re-reads accounts for it. See `DestinationProvider`.
+      await verify?.();
       const submitted = await contracts.activateNote(this.poolAddress as Address, commitment);
       await this.confirm(submitted.hash, "activation");
       return { hash: submitted.hash };

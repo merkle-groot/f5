@@ -36,8 +36,10 @@ export class SDKError extends Error {
     super(message);
     this.name = this.constructor.name;
 
-    // Maintains proper stack trace
-    Error.captureStackTrace(this, this.constructor);
+    // Maintains proper stack trace. V8-only: this SDK is also bundled into the
+    // browser app, where Firefox and Safari have no `captureStackTrace` and an
+    // unguarded call turns every SDK error into a TypeError that buries the real one.
+    Error.captureStackTrace?.(this, this.constructor);
   }
 
   /**
@@ -110,8 +112,10 @@ export class ContractError extends SDKError {
     code: ErrorCode = ErrorCode.CONTRACT_ERROR,
     details?: Record<string, unknown>,
   ) {
-    super(message, code);
-    this.name = "ContractError";
+    // `details` must reach `super`, as `ProofError` does. Dropping it silently
+    // emptied `error.details` and `toJSON()` for every ContractError, so the context
+    // a caller passed in never reached the log that was supposed to carry it.
+    super(message, code, details);
   }
 
   public static scopeNotFound(scope: bigint): ContractError {
@@ -120,6 +124,14 @@ export class ContractError extends SDKError {
 
   public static assetNotFound(address: string): ContractError {
     return new ContractError(`Asset ${address} has no pool`, ErrorCode.CONTRACT_ERROR);
+  }
+
+  public static bridgeConfigNotFound(chainId: bigint, asset: string): ContractError {
+    return new ContractError(
+      `Entrypoint returned no bridge config for chain ${chainId} / asset ${asset}`,
+      ErrorCode.CONTRACT_ERROR,
+      { chainId: chainId.toString(), asset },
+    );
   }
 
 }

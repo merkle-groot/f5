@@ -11,11 +11,12 @@
   },
   "dependencies": {
     "minimist": "1.2.8",
-    "viem": "2.22.14"
+    "viem": "2.22.14",
+    "@f5/privacy-pool-sdk": "link:../../../../sdk"
   },
   "devDependencies": {
     "@types/minimist": "1.2.5",
-    "@0xbow/privacy-pools-core-sdk": "0.1.21",
+    "@f5/privacy-pool-sdk": "0.1.21",
     "@types/node": "^22.13.0",
     "typescript": "5.5.4"
   }

@@ -8,7 +8,7 @@ import { Router } from "express";
 import { getL1, getStarknetConfig, starknetConfigured, STARKNET_DESTINATION_KEY } from "../config.mjs";
 import { destinationSigner } from "../destinations.mjs";
 import { readL1L2Notes } from "../evm-reads.mjs";
-import { errorMessage, sendJson } from "../http.mjs";
+import { errorMessage, parseCommitment, sendJson } from "../http.mjs";
 import { buildScannableNotes, reconstructL2StateTree } from "../pool-events.mjs";
 import { proxyToRelayer } from "../relayer-proxy.mjs";
 import {
@@ -85,7 +85,7 @@ starknetRouter.get("/index", async (_req, res) => {
       getNoteLifecycleEvents(provider, config),
       getScope(provider, config),
     ]);
-    const { received, activated } = lifecycle;
+    const { received, activated, spent } = lifecycle;
 
     const tree = reconstructL2StateTree(activated);
     return sendJson(res, {
@@ -102,6 +102,9 @@ starknetRouter.get("/index", async (_req, res) => {
           proof: index >= 0 ? tree.generateProof(index) : null,
         };
       }),
+      // See the EVM twin: spending sets `nullifier_hashes` and leaves the leaf in the
+      // tree, so a proof alone never means a note is still spendable.
+      spentNullifiers: spent.map((event) => event.spentNullifier),
     });
   } catch (error) {
     console.warn("[STARKNET INDEX ERROR]", error instanceof Error ? error.stack : error);
@@ -120,7 +123,7 @@ starknetRouter.get("/status/:commitment", async (req, res) => {
   const config = getStarknetConfig();
   try {
     const provider = getStarknetProvider(config);
-    const commitment = BigInt(req.params.commitment);
+    const commitment = parseCommitment(req.params.commitment);
     const [pendingValue, root, scope, lifecycle] = await Promise.all([
       getPendingValue(provider, config, commitment),
       getRoot(provider, config),
@@ -133,6 +136,12 @@ starknetRouter.get("/status/:commitment", async (req, res) => {
       pendingValue: pendingValue.toString(),
       currentRoot: root.toString(),
       scope: scope.toString(),
+      // Same three state names as the EVM route, but Starknet reaches only two of
+      // them in the normal flow. `depositWithMessage` credits the tokens before
+      // `on_receive`, so `_try_activate` succeeds inline and a delivered note goes
+      // straight from "bridge-pending" to "activated" in one transaction —
+      // `received-pending-activation` is currently unreachable: it needs the Cairo
+      // pool's superseded `#[l1_handler] receive_note` path, which no L1 code invokes.
       state: activatedEvents.some((event) => event.commitment === commitment)
         ? "activated"
         : pendingValue > 0n
@@ -140,7 +149,9 @@ starknetRouter.get("/status/:commitment", async (req, res) => {
           : "bridge-pending",
     });
   } catch (error) {
-    return res.status(502).json({ error: errorMessage(error, "Unable to read Starknet status") });
+    return res
+      .status(error.status ?? 502)
+      .json({ error: errorMessage(error, "Unable to read Starknet status") });
   }
 });
 
