@@ -30,7 +30,7 @@ import { SPENT_STATUS, largestFirst, matchingNotes, newestFirst, spentLast } fro
 import { nextWithdrawalIndex, recoverChangeNotes } from "./change-notes.js";
 import { deriveL2Status as deriveNoteStatus, spentNullifierSet } from "./l2-status.js";
 import { STARKNET_STATUS_RETRIES, starknetRetryDelayMs, starknetStatusUnsettled } from "./starknet-status.js";
-import { errorHint } from "./error-hints.js";
+import { condenseError, errorHint } from "./error-hints.js";
 import { prove } from "./prove.js";
 import { txLinkHtml } from "./explorer.js";
 import { evmAddressProblem, recipientProblem } from "./recipient.js";
@@ -141,6 +141,8 @@ const state = {
   /** Explorer anchor rendered under the current notice; cleared with it. */
   noticeTx: null,
   busy: false,
+  /** Identifies the control that started the current guarded operation. */
+  busyAction: null,
   /** When the current proof started, for the elapsed counter. Null when idle. */
   provingSince: null,
   /** Connected wallet's L1 balance in wei, as a string. Null until read. */
@@ -283,18 +285,25 @@ function navigateVault(view, { replace = false, capture = true, clearMessages = 
 function walletPicker() {
   const connected = wallets?.connection().connector;
   const options = (wallets?.available() ?? []).map(({ uid, name, icon }) => `
-    <button type="button" class="wallet-option" data-wallet-uid="${escapeHtml(uid)}">
+    <button type="button" class="wallet-option" data-wallet-uid="${escapeHtml(uid)}" ${state.busy ? "disabled" : ""}>
       ${icon ? `<img src="${escapeHtml(icon)}" alt="" width="26" height="26" />` : `<i class="wallet-blank"></i>`}
-      <span>${escapeHtml(name)}</span>
+      <span>${state.busyAction === "wallet-connect" ? `<span class="spinner" aria-hidden="true"></span>CONNECTING…` : escapeHtml(name)}</span>
       ${connected?.uid === uid ? `<i class="wallet-last">ON</i>` : ""}
     </button>`).join("");
   return `
     <div class="wallet-picker">
       <p class="wallet-picker-title">${options ? "Choose a wallet" : "No wallet found"}</p>
       ${options || `<p class="wallet-picker-empty">Install an Ethereum wallet extension, then reload.</p>`}
-      ${state.account ? `<button type="button" class="wallet-picker-cancel" data-wallet-disconnect>Disconnect</button>` : ""}
+      ${state.account ? `<button type="button" class="wallet-picker-cancel" data-wallet-disconnect ${state.busy ? "disabled" : ""}>${busyLabel("wallet-disconnect", "DISCONNECT", "DISCONNECTING…")}</button>` : ""}
       <button type="button" class="wallet-picker-cancel" data-wallet-cancel>Cancel</button>
     </div>`;
+}
+
+/** A small, consistent busy label for controls whose work is otherwise invisible. */
+function busyLabel(action, idle, loading) {
+  return state.busyAction === action
+    ? `<span class="spinner" aria-hidden="true"></span>${loading}`
+    : idle;
 }
 
 /**
@@ -340,7 +349,7 @@ function networkButton() {
     return `<span class="network network-static"><i class="dot route-ethereum"></i> ${escapeHtml(chainName(state.walletChainId))}</span>`;
   }
   return `<button id="network-switch" class="network network-wrong" title="Wallet is on the wrong network — click to switch to ${escapeHtml(pool)}" ${state.busy ? "disabled" : ""}>
-    <i class="dot wrong-dot"></i> ${escapeHtml(chainName(state.walletChainId))}<i class="network-flag">WRONG</i>
+    <i class="dot wrong-dot"></i> ${busyLabel("switch-network", escapeHtml(chainName(state.walletChainId)), "SWITCHING…")}<i class="network-flag">WRONG</i>
   </button>`;
 }
 
@@ -360,7 +369,7 @@ function topbar() {
       <a class="brand" href="/vault" data-view="home"><span class="brand-mark">${icons.mark}</span><span>f5</span><span class="tag pink">VAULT</span></a>
       <div class="wallet">
         <div class="wallet-combo account-slot">
-          <button id="connect" class="account">${walletBadge()}${acct}</button>
+          <button id="connect" class="account" ${state.busy ? "disabled" : ""}>${walletBadge()}${state.busyAction === "wallet-connect" ? busyLabel("wallet-connect", acct, state.account ? "OPENING WALLETS…" : "CONNECTING…") : acct}</button>
           ${networkButton()}
           ${state.walletPicker ? walletPicker() : ""}
         </div>
@@ -373,7 +382,11 @@ function topbar() {
 }
 
 function footer() {
-  return `<footer><span>© 2026 f5 / SHIELDED VAULT</span><span><a href="/">Home</a></span></footer>`;
+  return `<footer><span>© 2026 f5 / SHIELDED VAULT</span><span>`
+    + `<a class="run" href="https://x.com/0x1379" target="_blank" rel="noopener noreferrer">X / @0x1379</a>`
+    + `<a href="https://github.com/merkle-groot/f5" target="_blank" rel="noopener noreferrer">GitHub</a>`
+    + `<a href="/">Home</a>`
+    + `</span></footer>`;
 }
 
 /** Locked: nothing but the minimal onboarding card. */
@@ -433,12 +446,12 @@ function bind() {
       void guard(refreshRagequitEligibility, "ragequit-check");
     }
   }));
-  on("#connect", "click", () => guard(state.account ? openWalletPicker : connectWallet));
-  on("[data-connect-wallet]", "click", () => guard(connectWallet));
+  on("#connect", "click", () => guard(state.account ? openWalletPicker : connectWallet, null, "wallet-connect"));
+  on("[data-connect-wallet]", "click", () => guard(connectWallet, null, "wallet-connect"));
   app.querySelectorAll("[data-wallet-uid]").forEach((button) => button.addEventListener("click", () => {
-    void guard(() => connectToWallet(button.dataset.walletUid));
+    void guard(() => connectToWallet(button.dataset.walletUid), null, "wallet-connect");
   }));
-  on("[data-wallet-disconnect]", "click", () => guard(disconnectWallet));
+  on("[data-wallet-disconnect]", "click", () => guard(disconnectWallet, null, "wallet-disconnect"));
   on("[data-wallet-cancel]", "click", () => { state.walletPicker = false; render(); });
   on("#lock", "click", lockVault);
   on("#action", "click", submitFlow);
@@ -468,13 +481,13 @@ function bind() {
     state.send.draft = null;
     state.error = null;
   }));
-  on("#retry-note-status", "click", () => guard(() => reconcileSpentNotes({ required: true }), "verify-notes"));
+  on("#retry-note-status", "click", () => guard(() => reconcileSpentNotes({ required: true }), "verify-notes", "verify-notes"));
   on("#max-amount", "click", () => guard(async () => {
     // Truncating MAX would strand up to a full unit of the field's last decimal in
     // the wallet. Round the *reserve* up to the field's precision instead, so the
     // figure is both expressible and still leaves gas covered.
     state.amount = truncateAmount(await maxDepositAmount(), amountDecimalsFor(state.config));
-  }));
+  }, null, "max-deposit"));
   app.querySelectorAll('input[name="send-chain"]').forEach((input) => input.addEventListener("change", (event) => {
     captureForm();
     state.send.destinationChainId = event.target.value;
@@ -521,23 +534,28 @@ function bind() {
   on("#create-identity", "click", startIdentitySetup);
   on("#import-identity", "click", startIdentityImport);
   on("#cancel-setup", "click", () => { state.setup = null; state.error = null; render(); });
-  on("#copy-phrase", "click", () => guard(copySetupMnemonic));
-  on("#confirm-setup", "click", () => guard(confirmIdentitySetup));
-  on("#confirm-import", "click", () => guard(confirmImportedIdentity));
+  on("#copy-phrase", "click", (event) => {
+    // `guard` re-renders before the clipboard write completes, so preserve the
+    // button position now for the transient confirmation.
+    const rect = anchorRect(event.currentTarget);
+    void guard(() => copySetupMnemonic(rect), null, "copy-phrase");
+  });
+  on("#confirm-setup", "click", () => guard(confirmIdentitySetup, null, "create-vault"));
+  on("#confirm-import", "click", () => guard(confirmImportedIdentity, null, "import-vault"));
   app.querySelectorAll('input[name="setup-kind"]').forEach((input) => input.addEventListener("change", (event) => {
     if (!state.setup || !event.target.checked) return;
     state.setup.kind = event.target.value;
     render();
     if (event.target.value === "password") app.querySelector("#setup-password")?.focus();
   }));
-  on("#unlock-wallet", "click", () => guard(() => unlockIdentity("wallet")));
-  on("#unlock-password", "click", () => guard(() => unlockIdentity("password")));
+  on("#unlock-wallet", "click", () => guard(() => unlockIdentity("wallet"), null, "unlock-vault"));
+  on("#unlock-password", "click", () => guard(() => unlockIdentity("password"), null, "unlock-vault"));
   on("#reveal-mnemonic", "click", () => { state.notice = `Recovery phrase. Write it down:\n\n${state.identity.mnemonic}`; state.noticeTx = null; render(); });
   on("#register-keys", "click", () => guard(registerShieldedAddress));
   app.querySelectorAll("[data-copy-shielded]").forEach((button) => button.addEventListener("click", () => {
     // Measured before `guard` re-renders and detaches this button.
     const rect = anchorRect(button);
-    void guard(() => copyValue(button.dataset.copyLabel, button.dataset.copyShielded, rect));
+    void guard(() => copyValue(button.dataset.copyLabel, button.dataset.copyShielded, rect), null, "copy");
   }));
   // Generic copy. Note rows nest this inside a clickable row, so the click must not
   // also fire the row's "open this note" navigation.
@@ -545,7 +563,7 @@ function bind() {
     event.stopPropagation();
     event.preventDefault();
     const rect = anchorRect(button);
-    void guard(() => copyValue(button.dataset.copyLabel, button.dataset.copy, rect));
+    void guard(() => copyValue(button.dataset.copyLabel, button.dataset.copy, rect), null, "copy");
   }));
   app.querySelectorAll("[data-scan]").forEach((b) => b.addEventListener("click", () => guard(scanForNotes, "scan")));
   // Refresh one route without paying for every other destination's index fetch.
@@ -569,8 +587,8 @@ function bind() {
     state.notesUi.route = null;
     render();
   });
-  on("#switch-chain", "click", () => guard(switchToPoolChain));
-  on("#network-switch", "click", () => guard(switchToPoolChain));
+  on("#switch-chain", "click", () => guard(switchToPoolChain, null, "switch-network"));
+  on("#network-switch", "click", () => guard(switchToPoolChain, null, "switch-network"));
   // Surgical, like the fee preview and the cohort counts: a full render on every
   // keystroke would rebuild the input and drop the caret mid-word.
   on("#notes-search", "input", (event) => {
@@ -581,7 +599,7 @@ function bind() {
     state.notesUi.sort = state.notesUi.sort === "largest" ? "newest" : "largest";
     render();
   });
-  on("#resolve-recipient", "click", () => guard(resolveRecipient));
+  on("#resolve-recipient", "click", () => guard(resolveRecipient, null, "resolve-recipient"));
   app.querySelectorAll('input[name="ragequit-note"]').forEach((input) => input.addEventListener("change", (event) => {
     selectRagequitNote(state.ragequit, event.target.value);
     render();
@@ -675,7 +693,7 @@ function activate(el, run) {
 }
 
 /** Run an async handler with uniform busy/error handling. */
-async function guard(fn, noteProgress = null) {
+async function guard(fn, noteProgress = null, busyAction = null) {
   // A second action while one is running is dropped — the flows are not reentrant.
   // Say so: silently ignoring the click is indistinguishable from a dead button,
   // and the long ones (scanning, proving) are exactly when people click again.
@@ -686,6 +704,7 @@ async function guard(fn, noteProgress = null) {
     return;
   }
   state.busy = true;
+  state.busyAction = busyAction;
   state.noteProgress = noteProgress;
   state.error = null;
   // A success banner from the last publication does not survive the next action.
@@ -712,11 +731,17 @@ async function guard(fn, noteProgress = null) {
   try {
     await fn();
   } catch (error) {
-    if (error?.code !== 4001) state.error = describeError(error);
+    if (error?.code !== 4001) {
+      // The banner shows a condensed string; this keeps the whole object — stack,
+      // nested `cause`, viem's metadata — one console line away for a bug report.
+      console.error("[f5]", error);
+      state.error = describeError(error);
+    }
   } finally {
     window.clearInterval(ticker);
     state.provingSince = null;
     state.busy = false;
+    state.busyAction = null;
     state.noteProgress = null;
     // A publication that threw (or that the user rejected) leaves a mid-flight
     // phase behind; only the finished state is allowed to outlive the action.
@@ -756,13 +781,13 @@ function renderLanding() {
           <div class="launch-brand">
             <span class="brand-mark">${icons.mark}</span>
             <span class="launch-wordmark">f5</span>
-            <span class="launch-eyebrow">SHIELDED VAULT · 2026</span>
+            <span class="launch-eyebrow">SHIELDED VAULT</span>
           </div>
           <span class="launch-status"><i class="live-dot"></i> NODE ONLINE</span>
         </div>
         <h1>Deposit once.<br>Stay shielded<br>everywhere.</h1>
         <div class="launch-bottom">
-          <p>Private notes that travel across Ethereum and every L2. Keys stay local. No custody, no compromise.</p>
+          <p>Private notes that travel across Ethereum and every L2. Keys stay local. Self-custodied</p>
           <a class="launch-cta" href="/vault">LAUNCH →</a>
         </div>
       </section>
@@ -796,7 +821,7 @@ function identityGate() {
     return `
       <div class="flow-step active phrase-head generate-head"><span class="flow-number">!</span><div><span class="eyebrow">WRITE THIS DOWN</span><h3>YOUR RECOVERY PHRASE</h3><p>These twelve words derive your note secrets, your shielded address, and your vault. They are the only backup that exists. f5 cannot recover them for you.</p></div></div>
       <div class="mnemonic-grid">${state.setup.mnemonic.split(" ").map((w, i) => `<span><b>${i + 1}</b>${w}</span>`).join("")}</div>
-      <div class="key-actions phrase-actions"><button id="cancel-setup" class="secondary-btn">← BACK</button><button id="copy-phrase" class="secondary-btn">COPY ALL 12 WORDS</button></div>
+      <div class="key-actions phrase-actions"><button id="cancel-setup" class="secondary-btn">← BACK</button><button id="copy-phrase" class="secondary-btn" ${state.busy ? "disabled" : ""}>${busyLabel("copy-phrase", "COPY ALL 12 WORDS", "COPYING…")}</button></div>
       ${setupProtectionFields("confirm-setup", "CREATE MY VAULT →", "I have written the phrase down somewhere safe.")}
       <div class="micro">the phrase never leaves this browser&#12288;★&#12288;losing it loses the funds</div>
     `;
@@ -808,8 +833,8 @@ function identityGate() {
       <div class="flow-step active"><span class="flow-number">01</span><div><span class="eyebrow">WELCOME BACK</span><h3>UNLOCK YOUR VAULT</h3><p>Your recovery phrase is stored encrypted on this device.</p></div></div>
       ${kind === "password"
         ? `<label class="input-label">PASSWORD<input id="unlock-password-input" type="password" placeholder="your vault password" value="${escapeHtml(state.unlockPassword)}" /></label>
-           <button id="unlock-password" class="primary">UNLOCK →</button>`
-        : `<button id="unlock-wallet" class="primary">SIGN TO UNLOCK →</button>`}
+           <button id="unlock-password" class="primary" ${state.busy ? "disabled" : ""}>${busyLabel("unlock-vault", "UNLOCK →", "UNLOCKING…")}</button>`
+        : `<button id="unlock-wallet" class="primary" ${state.busy ? "disabled" : ""}>${busyLabel("unlock-vault", "SIGN TO UNLOCK →", "UNLOCKING…")}</button>`}
       <div class="key-actions"><button id="import-identity" class="secondary-btn">IMPORT A DIFFERENT PHRASE</button></div>
       <div class="micro">the signature only unwraps the phrase&#12288;★&#12288;it is never the key itself</div>
     `;
@@ -834,7 +859,7 @@ function setupProtectionFields(buttonId, buttonLabel, confirmation) {
     </fieldset>
     ${kind === "password" ? `<label class="input-label" id="setup-password-row">PASSWORD<input id="setup-password" type="password" placeholder="at least 8 characters" value="${escapeHtml(password)}" /></label>` : ""}
     ${confirmation ? `<label class="confirm-row"><input type="checkbox" id="setup-confirmed" ${state.setup?.confirmed ? "checked" : ""} /> ${confirmation}</label>` : ""}
-    <button id="${buttonId}" class="primary">${buttonLabel}</button>`;
+    <button id="${buttonId}" class="primary" ${state.busy ? "disabled" : ""}>${busyLabel(buttonId === "confirm-setup" ? "create-vault" : "import-vault", buttonLabel, buttonId === "confirm-setup" ? "CREATING VAULT…" : "IMPORTING VAULT…")}</button>`;
 }
 
 /*//////////////////////////////////////////////////////////////
@@ -1187,6 +1212,7 @@ function homeView() {
       account: state.account,
       registered: state.registered,
       busy: state.busy,
+      busyAction: state.busyAction,
       publishPhase: state.publishPhase,
     })}
     ${noticeView()}`;
@@ -1297,10 +1323,12 @@ function bridgeCohortMarkup(amountWei, noteValue) {
 function depositView() {
   const config = state.config;
   const hasMinimum = config?.minDepositWei && config.minDepositWei !== "0";
-  const minimum = hasMinimum ? `${formatEther(BigInt(config.minDepositWei))} ${config.symbol}` : "not available";
-  // An unset amount defaults to the pool's own minimum rather than an arbitrary
-  // guess, so the field never opens on a value that would reject.
-  const displayedAmount = state.amount || truncateAmount(depositDefaultAmount(config), amountDecimalsFor(config));
+  // Share the formatted value between the hint and the field. This avoids a
+  // display-only rounding/truncation path making the prefilled amount look
+  // different from (or worse, smaller than) the stated pool minimum.
+  const minimumAmount = hasMinimum ? formatEther(BigInt(config.minDepositWei)) : null;
+  const minimum = minimumAmount ? `${minimumAmount} ${config.symbol}` : "not available";
+  const displayedAmount = state.amount || minimumAmount || "0";
   return `
     <section class="panel flow-panel">
       ${flowHead("L1 · ETHEREUM", "DEPOSIT", "Put value into the pool. The note's secrets come from your phrase, so it survives a wiped browser.")}
@@ -1308,7 +1336,7 @@ function depositView() {
       ${wrongChainView()}
       ${noticeView()}
       <div class="field-label"><span>FROM</span><span>${state.walletBalance === null ? "" : `BALANCE ${fmt(BigInt(state.walletBalance))} ${config?.symbol ?? "ETH"}&#12288;·&#12288;`}<i class="dot route-ethereum"></i> ${config?.chainName ?? "LOADING"}</span></div>
-      <div class="amount-field"><div><input id="amount" value="${escapeHtml(displayedAmount)}" inputmode="decimal" autocomplete="off" /><small>up to ${amountDecimalsFor(config)} decimals · minimum ${minimum}</small></div>${state.walletBalance === null ? "" : `<button id="max-amount" type="button" class="max-chip" ${state.busy ? "disabled" : ""}>MAX</button>`}<button class="asset">${icons.eth} ${config?.symbol ?? "ETH"}</button></div>
+      <div class="amount-field"><div><input id="amount" value="${escapeHtml(displayedAmount)}" inputmode="decimal" autocomplete="off" /><small>up to ${amountDecimalsFor(config)} decimals · minimum ${minimum}</small></div>${state.walletBalance === null ? "" : `<button id="max-amount" type="button" class="max-chip" ${state.busy ? "disabled" : ""}>${busyLabel("max-deposit", "MAX", "CALCULATING…")}</button>`}<button class="asset">${icons.eth} ${config?.symbol ?? "ETH"}</button></div>
       <div class="field-label pool-label"><span>VARIABLE AMOUNT</span><span>${config ? `${config.vettingFeeBps / 100}% VETTING FEE` : "LOADING"}</span></div>
       <button id="action" class="primary" ${state.busy || walletOnWrongChain() ? "disabled" : ""}>${depositActionLabel()}</button>
       ${depositResultCard()}
@@ -1487,7 +1515,7 @@ function sendView() {
       ${bridgeFlowDiagram(send)}
       ${noticeView()}
       ${state.l1NoteStatus === "verifying" ? `<div class="notice pink-card"><strong>VERIFYING NOTES</strong><span>Checking the shared L1 snapshot before showing notes you can bridge.</span></div>` : ""}
-      ${state.l1NoteStatus === "error" ? `<div class="notice error-card"><strong>NOTE STATUS UNAVAILABLE</strong><span>The app cannot safely verify which L1 notes are unspent. <button id="retry-note-status" type="button" class="inline-action">RETRY</button></span></div>` : ""}
+      ${state.l1NoteStatus === "error" ? `<div class="notice error-card"><strong>NOTE STATUS UNAVAILABLE</strong><span>The app cannot safely verify which L1 notes are unspent. <button id="retry-note-status" type="button" class="inline-action" ${state.busy ? "disabled" : ""}>${busyLabel("verify-notes", "RETRY", "RETRYING…")}</button></span></div>` : ""}
       <fieldset class="bridge-choice note-choice"><legend>L1 NOTE TO SPEND</legend>
         ${ready.length ? ready.map(noteOption).join("") : `<div class="note-empty">${notesVerified ? "No spendable L1 notes." : "Waiting for verified note status."}</div>`}
       </fieldset>
@@ -1516,7 +1544,7 @@ function sendView() {
           </div>
           ${fieldProblemSlot("send-recipient-problem", evmAddressProblem(send.recipientKey))}
         </label>
-        <div class="key-actions"><button id="resolve-recipient" class="secondary-btn">CHECK REGISTRY</button></div>
+        <div class="key-actions"><button id="resolve-recipient" class="secondary-btn" ${state.busy ? "disabled" : ""}>${busyLabel("resolve-recipient", "CHECK REGISTRY", "CHECKING REGISTRY…")}</button></div>
         ${send.resolved ? `<div class="notice teal-card"><strong>REGISTERED USER FOUND</strong><span>Their shielded address is published on L1. </span></div>` : ""}`
         : `<div class="notice teal-card"><strong>SELF BRIDGE</strong><span>The destination note will use the shielded address derived from this vault.</span></div>`}
       ${draft?.relayed || draft?.proof ? `<div class="notice ${draft?.relayed ? "teal-card" : "pink-card"}">
@@ -1701,13 +1729,16 @@ function noteEligibilityAddress(note) {
  */
 function wrongChainView() {
   if (!walletOnWrongChain()) return "";
-  return `<div class="notice error-card" role="alert"><strong>WRONG NETWORK</strong><span>This wallet is on chain ${state.walletChainId}, but the pool is on ${escapeHtml(state.config.chainName)} (${state.config.chainId}). Transactions will fail until you switch.</span><button id="switch-chain" class="dismiss" ${state.busy ? "disabled" : ""}>SWITCH TO ${escapeHtml(String(state.config.chainName).toUpperCase())}</button></div>`;
+  return `<div class="notice error-card" role="alert"><strong>WRONG NETWORK</strong><span>This wallet is on chain ${state.walletChainId}, but the pool is on ${escapeHtml(state.config.chainName)} (${state.config.chainId}). Transactions will fail until you switch.</span><button id="switch-chain" class="dismiss" ${state.busy ? "disabled" : ""}>${busyLabel("switch-network", `SWITCH TO ${escapeHtml(String(state.config.chainName).toUpperCase())}`, "SWITCHING…")}</button></div>`;
 }
 
 function errorView() {
   if (!state.error) return "";
   const hint = errorHint(state.error);
-  return `<div class="notice error-card" role="alert"><strong>SOMETHING BROKE</strong><span>${escapeHtml(state.error)}</span>${hint ? `<span class="error-hint">${escapeHtml(hint)}</span>` : ""}<button id="dismiss-error" class="dismiss">DISMISS</button></div>`;
+  // Condensed on screen, verbatim in `title` — hovering (or inspecting) still yields
+  // the exact string, which is what a bug report needs. The console line in `guard`
+  // carries the original Error object, stack included.
+  return `<div class="notice error-card" role="alert"><strong>SOMETHING BROKE</strong><span title="${escapeHtml(state.error)}">${escapeHtml(condenseError(state.error))}</span>${hint ? `<span class="error-hint">${escapeHtml(hint)}</span>` : ""}<button id="dismiss-error" class="dismiss">DISMISS</button></div>`;
 }
 function noticeView() {
   if (!state.notice) return "";
@@ -2034,7 +2065,7 @@ function showFieldProblem(id, problem) {
 
 function copyButton(value, label = "Value") {
   if (!value) return "";
-  return `<button type="button" class="copy-chip" data-copy="${escapeHtml(value)}" data-copy-label="${escapeHtml(label)}" title="Copy ${escapeHtml(label.toLowerCase())}" aria-label="Copy ${escapeHtml(label.toLowerCase())}">COPY</button>`;
+  return `<button type="button" class="copy-chip" data-copy="${escapeHtml(value)}" data-copy-label="${escapeHtml(label)}" title="Copy ${escapeHtml(label.toLowerCase())}" aria-label="Copy ${escapeHtml(label.toLowerCase())}" ${state.busy ? "disabled" : ""}>${busyLabel("copy", "COPY", "COPYING…")}</button>`;
 }
 /** Format a wei bigint down to a compact ETH string for the header numbers. */
 function fmt(wei) {
@@ -2601,7 +2632,7 @@ function startIdentityImport() {
   render();
 }
 
-async function copySetupMnemonic() {
+async function copySetupMnemonic(rect) {
   const mnemonic = state.setup?.mnemonic;
   if (!mnemonic) throw new Error("Generate a recovery phrase first.");
   if (navigator.clipboard?.writeText) {
@@ -2618,7 +2649,7 @@ async function copySetupMnemonic() {
     textarea.remove();
     if (!copied) throw new Error("Could not copy the recovery phrase. Select the words and copy them manually.");
   }
-  state.notice = "Recovery phrase copied. Store it somewhere safe and clear it from your clipboard when finished.";
+  showCopiedSticker(rect);
 }
 
 async function copyValue(label, value, rect) {

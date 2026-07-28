@@ -182,6 +182,43 @@ describe("PrivacyPoolRelayer (Mode-3, real service)", () => {
     expect(h.sdk.broadcastWithdrawal).toHaveBeenCalledTimes(1);
   });
 
+  it("serializes concurrent L1 broadcasts on one signer (no nonce race)", async () => {
+    // The broadcast blocks until we release it, so we can observe how many run at
+    // once. Before the KeyedSerialExecutor wrap, two concurrent relays both entered
+    // here and read the same nonce; now the second must wait for the first.
+    let active = 0;
+    let maxActive = 0;
+    const releases: Array<() => void> = [];
+    h.sdk.broadcastWithdrawal.mockImplementation(() => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      return new Promise((resolve) => {
+        releases.push(() => {
+          active--;
+          resolve({ hash: "0xTx" });
+        });
+      });
+    });
+
+    const p1 = service.handleRequest(payload({}), SOURCE_CHAIN);
+    const p2 = service.handleRequest(payload({}), SOURCE_CHAIN);
+
+    // Both requests validate in parallel, but only the first reaches broadcast.
+    await vi.waitFor(() => expect(releases.length).toBe(1));
+    expect(active).toBe(1);
+
+    releases[0]!(); // finish the first broadcast
+    // Only now may the second one start.
+    await vi.waitFor(() => expect(releases.length).toBe(2));
+    expect(active).toBe(1);
+    releases[1]!();
+
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(r1.success).toBe(true);
+    expect(r2.success).toBe(true);
+    expect(maxActive).toBe(1); // never overlapped
+  });
+
   it("rejects an invalid destination chainId", async () => {
     const res = await service.handleRequest(
       payload({ chainId: 0n }),

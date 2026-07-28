@@ -1,0 +1,84 @@
+# Run from the REPO ROOT so the build context resolves:
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#
+# Three processes, one trust boundary. `relayer` is the ONLY container that holds a
+# private key or signs anything; `app` indexes chain state and proxies every write to it;
+# `web` serves the client and terminates TLS. Only `web` publishes a port — the other two
+# are reachable solely on the internal compose network, which is what keeps the relayer's
+# signing API off the public internet.
+
+name: f5
+
+services:
+  relayer:
+    build:
+      context: ..
+      dockerfile: packages/relayer/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./config/relayer.env
+    environment:
+      PORT: "8788"
+      HOST: 0.0.0.0
+      CONFIG_PATH: /config/relayer.json
+      # The Starknet destination verifies withdrawL2 proofs through garaga, which reads
+      # this vkey. Its default path (../circuits/build/...) does not exist in the image.
+      WITHDRAW_L2_VKEY_PATH: /build/packages/sdk/dist/node/artifacts/withdrawL2.vkey
+    volumes:
+      - ./config/relayer.json:/config/relayer.json:ro
+      # MUST be the SDK's own artifact directory, not an arbitrary path. The relayer loads
+      # artifacts through the SDK, whose baseUrl resolves to this location — mounting them
+      # anywhere else leaves the relayer with no artifacts at all. It still starts and
+      # serves, and only fails when a relay arrives: the proof verification throws ENOENT
+      # per artifact and the client sees a bare "Unknown contract error".
+      - ./artifacts:/build/packages/sdk/dist/node/artifacts:ro
+      - relayer-data:/build/packages/relayer/data
+    expose:
+      - "8788"
+
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/app.Dockerfile
+      target: server
+    restart: unless-stopped
+    env_file:
+      - ./config/app.env
+    environment:
+      PORT: "8787"
+      # Container-to-container. Overrides whatever localhost value app.env carries over
+      # from .env.sepolia.example — that one is only right when both run on the host.
+      RELAYER_API_URL: http://relayer:8788
+    volumes:
+      # The proving keys, mounted over the path the SDK build left empty. app/server
+      # serves these at /api/circuits/artifacts for the browser's local prover.
+      - ./artifacts:/build/packages/sdk/dist/node/artifacts:ro
+    expose:
+      - "8787"
+    depends_on:
+      - relayer
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/app.Dockerfile
+      target: web
+    restart: unless-stopped
+    environment:
+      F5_DOMAIN: ${F5_DOMAIN:?set F5_DOMAIN in deploy/.env — a bare IP cannot be issued a certificate}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Same artifacts the app container mounts, read by Caddy's file_server so the 38 MB
+      # cold-load path never enters Node. See the Caddyfile for why.
+      - ./artifacts:/srv/artifacts:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+
+volumes:
+  relayer-data:
+  caddy-data:
+  caddy-config:

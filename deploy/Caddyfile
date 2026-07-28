@@ -1,0 +1,58 @@
+# TLS is not optional for this app.
+#
+# The Vault encrypts the recovery phrase with `crypto.subtle`, and WebCrypto only exists
+# in a SECURE CONTEXT. Served over plain http:// on a public IP, `crypto.subtle` is
+# undefined and the Vault cannot be created or unlocked at all — the app is not
+# "degraded", it is unusable. `localhost` is exempt from that rule; an EC2 address is not.
+# Caddy provisions and renews a Let's Encrypt certificate automatically, which is the whole
+# reason it is here rather than nginx.
+#
+# F5_DOMAIN must be a name that resolves to this host. A bare IP cannot get a public
+# certificate; `<dashed-ip>.sslip.io` (e.g. 203-0-113-7.sslip.io) resolves to that IP and
+# IS certifiable, which makes it the zero-setup option if you have no domain yet.
+
+{$F5_DOMAIN} {
+	encode zstd gzip
+
+	# The proving artifacts: ~38 MB per cold visitor, and 89% of this deployment's egress.
+	#
+	# Served here rather than proxied to app:8787. The app server CAN serve them
+	# (express.static in app/server/index.mjs, which is still the local-dev path), but that
+	# streams 38 MB through a single-threaded Node process that is simultaneously indexing
+	# chains — a handful of concurrent cold loads is enough to starve the event loop that
+	# every /api read depends on. Caddy serves static bytes with none of that coupling.
+	#
+	# Deliberately NOT `immutable`, and not a year. These filenames are not content-addressed
+	# — `withdrawL1.zkey` is a stable name whose CONTENTS change if the Groth16 setup is ever
+	# re-run. A year-long immutable cache would pin browsers to a superseded proving key
+	# whose proofs the redeployed verifier rejects, with no way to bust it. A week keeps the
+	# repeat-visit win and bounds that blast radius.
+	handle_path /api/circuits/artifacts/* {
+		root * /srv/artifacts
+		file_server
+		header Cache-Control "public, max-age=604800"
+	}
+
+	# Everything else under /api: chain reads, and the proxied writes to the relayer.
+	handle /api/* {
+		reverse_proxy app:8787 {
+			# Some reads sweep wide block ranges on a cold index and outlast the default.
+			transport http {
+				response_header_timeout 120s
+			}
+		}
+	}
+
+	# The Vite build. SPA fallback so a deep link does not 404.
+	handle {
+		root * /srv/www
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+	}
+}

@@ -16,8 +16,8 @@ contract EthereumSepolia is DeployProtocol {
     _nativePoolConfig = PoolConfig({
       symbol: 'ETH',
       asset: IERC20(Constants.NATIVE_ASSET),
-      minimumDepositAmount: 0.001 ether,
-      vettingFeeBPS: 100,
+      minimumDepositAmount: 0.01 ether,
+      vettingFeeBPS: 10, // 0.1%
       maxRelayFeeBPS: 100
     });
 

@@ -9,9 +9,8 @@ Deposits are **destination-agnostic**: the destination is a property of the with
 deposit. Routing to N chains therefore concentrates one anonymity set instead of fragmenting
 deposits across N pools.
 
-> **Status: testnet.** Sepolia L1 with OP Sepolia / Base Sepolia / Arbitrum Sepolia destinations.
-> Starknet is implemented but currently **disabled by a fail-closed gate**. See
-> [Status and known gaps](#status-and-known-gaps). This is not production software and has not been
+> **Status: testnet.** Sepolia L1 with OP Sepolia / Base Sepolia / Arbitrum Sepolia / Starknet Sepolia destinations.
+> See [Status and known gaps](#status-and-known-gaps). This is not production software and has not been
 > audited.
 
 ![The f5 shielded vault: a transit map of L1 and the four destination chains, alongside the spendable

@@ -106,8 +106,17 @@ export async function readL1L2Notes() {
     .map(parseL2NoteLog);
 }
 
-/** Read and partition all three destination note lifecycle events with one log filter. */
-export async function readEvmL2NoteEvents(chain) {
+/**
+ * Read and partition all three destination note lifecycle events with one log filter.
+ *
+ * `force` replays the stream from the deployment block instead of trusting the cache.
+ * The incremental path advances its cursor to `head - reorgBuffer` on the strength of
+ * the head returned by `eth_blockNumber`; a load-balanced RPC can serve the `eth_getLogs`
+ * for that same window from a backend that is further behind, in which case a
+ * `NoteActivated` is skipped and — because the cursor has already moved past it —
+ * never refetched. One missing leaf silently changes every subsequent tree root.
+ */
+export async function readEvmL2NoteEvents(chain, { force = false } = {}) {
   const logs = await eventIndex.read({
     chain: `evm:${chain.chainId}`,
     rpcUrl: chain.rpcUrl,
@@ -116,6 +125,7 @@ export async function readEvmL2NoteEvents(chain) {
     eventKey: noteLifecycleKey,
     fromBlock: BigInt(chain.deploymentBlock ?? "0"),
     chunkBlocks: chain.logChunkBlocks,
+    force,
   });
   const received = [];
   const activated = [];

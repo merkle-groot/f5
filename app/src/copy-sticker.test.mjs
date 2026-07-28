@@ -107,7 +107,17 @@ test("copying reports through the sticker, not the notice card", async () => {
   assert.doesNotMatch(copyValueSource, /state\.notice/);
   // Both bindings must measure SYNCHRONOUSLY at click time and forward the rect.
   // Passing `button` here is the bug: `guard` re-renders before the copy resolves.
-  assert.match(source, /const rect = anchorRect\(button\);\s*void guard\(\(\) => copyValue\(button\.dataset\.copyLabel, button\.dataset\.copyShielded, rect\)\)/);
-  assert.match(source, /const rect = anchorRect\(button\);\s*void guard\(\(\) => copyValue\(button\.dataset\.copyLabel, button\.dataset\.copy, rect\)\)/);
+  assert.match(source, /const rect = anchorRect\(button\);\s*void guard\(\(\) => copyValue\(button\.dataset\.copyLabel, button\.dataset\.copyShielded, rect\), null, "copy"\)/);
+  assert.match(source, /const rect = anchorRect\(button\);\s*void guard\(\(\) => copyValue\(button\.dataset\.copyLabel, button\.dataset\.copy, rect\), null, "copy"\)/);
   assert.doesNotMatch(source, /copyValue\([^)]*, button\)/);
+});
+
+test("copying the recovery phrase uses the same anchored sticker", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("./main.js", import.meta.url), "utf8");
+  const copyPhraseSource = source.slice(source.indexOf("async function copySetupMnemonic("), source.indexOf("async function copyValue("));
+
+  assert.match(copyPhraseSource, /showCopiedSticker\(rect\)/);
+  assert.doesNotMatch(copyPhraseSource, /state\.notice/);
+  assert.match(source, /on\("#copy-phrase", "click", \(event\) => \{\s*\/\/ `guard` re-renders[\s\S]*?const rect = anchorRect\(event\.currentTarget\);\s*void guard\(\(\) => copySetupMnemonic\(rect\), null, "copy-phrase"\);/);
 });

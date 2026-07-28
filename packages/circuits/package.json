@@ -22,14 +22,14 @@
     "setup:withdrawL2": "npx circomkit setup withdrawL2 ptau/powersOfTau28_hez_final_16.ptau",
     "setup:commitmentL1": "npx circomkit setup commitmentL1 ptau/powersOfTau28_hez_final_16.ptau",
     "setup:merkle": "npx circomkit setup merkleTree ptau/powersOfTau28_hez_final_16.ptau",
-    "present": "sh ./scripts/present.sh",
+    "present": "bash ./scripts/present.sh",
     "prove:withdrawL1": "npx circomkit prove withdrawL1 default",
     "prove:commitmentL1": "npx circomkit prove commitmentL1 default",
     "verify:withdrawL1": "npx circomkit verify withdrawL1 default",
     "verify:commitmentL1": "npx circomkit verify commitmentL1 default",
-    "gencontract:withdraw": "sh ./scripts/gen-verifier.sh withdrawL1 WithdrawalVerifier",
-    "gencontract:withdrawL2": "sh ./scripts/gen-verifier.sh withdrawL2 L2WithdrawalVerifier",
-    "gencontract:commitment": "sh ./scripts/gen-verifier.sh commitmentL1 CommitmentVerifier"
+    "gencontract:withdraw": "bash ./scripts/gen-verifier.sh withdrawL1 WithdrawalVerifier",
+    "gencontract:withdrawL2": "bash ./scripts/gen-verifier.sh withdrawL2 L2WithdrawalVerifier",
+    "gencontract:commitment": "bash ./scripts/gen-verifier.sh commitmentL1 CommitmentVerifier"
   },
   "dependencies": {
     "@zk-kit/lean-imt": "2.2.2",

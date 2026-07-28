@@ -78,12 +78,12 @@ function publishLabel(phase) {
  * perforated left stub carrying the identicon fingerprint, and the address the
  * user hands out — or the action that makes it resolvable — on the right.
  */
-export function renderVaultIdentityControls({ shielded, account, registered, busy, publishPhase = null }) {
+export function renderVaultIdentityControls({ shielded, account, registered, busy, busyAction = null, publishPhase = null }) {
   // Publication is per wallet, so with none connected the badge asks for one
   // rather than reporting a cached fingerprint as this wallet's status.
   const status = !account ? "CONNECT WALLET" : registered === true ? "PUBLISHED" : registered === false ? "NOT PUBLISHED" : "CHECKING";
   const statusControl = !account
-    ? `<button type="button" class="online identity-connect" data-connect-wallet><i class="dot teal-dot"></i> ${status}</button>`
+    ? `<button type="button" class="online identity-connect" data-connect-wallet ${busy ? "disabled" : ""}><i class="dot teal-dot"></i> ${busyAction === "wallet-connect" ? `<span class="spinner" aria-hidden="true"></span>CONNECTING…` : status}</button>`
     : `<span class="online"><i class="dot teal-dot"></i> ${status}</span>`;
   const holder = escapeHtml(account);
   /*
@@ -104,7 +104,7 @@ export function renderVaultIdentityControls({ shielded, account, registered, bus
     ? `${publishPhase === "published" ? `<p class="publish-done"><b>✓ PUBLISHED</b> Your address resolves now — people can send to it.</p>` : ""}
       <div class="holder-row${publishPhase === "published" ? " just-published" : ""}">
         <code class="holder-address">${holder}</code>
-        <button type="button" class="copy-meta-address" data-copy-shielded="${escapeHtml(account)}" data-copy-label="Address">COPY ADDRESS</button>
+        <button type="button" class="copy-meta-address" data-copy-shielded="${escapeHtml(account)}" data-copy-label="Address" ${busy ? "disabled" : ""}>${busyAction === "copy" ? `<span class="spinner" aria-hidden="true"></span>COPYING…` : "COPY ADDRESS"}</button>
       </div>`
     : registered === false && account
       ? `<button id="register-keys" type="button" class="holder-publish ${publishPhase ? "is-working" : ""}" ${busy ? "disabled" : ""}>${publishLabel(publishPhase)}</button>`

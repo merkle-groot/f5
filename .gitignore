@@ -29,3 +29,10 @@ node_modules
 # It was removed from the index with `git rm -r --cached docs`; the files remain on
 # disk. Listed after the *.md rules so it wins for everything underneath it.
 docs/
+
+# Deployment secrets: signing keys, RPC URLs with embedded API keys, and the
+# certificate hostname. Same rule as packages/relayer/config*.json — never tracked.
+deploy/.env
+deploy/config/
+# Proving artifacts staged for rsync; the source of truth is packages/sdk/dist.
+deploy/artifacts/

@@ -29,6 +29,39 @@ function resolve(req, res, extra = {}) {
   }
 }
 
+/**
+ * Rebuild the destination tree from `activated` and check its root against the pool.
+ *
+ * A LeanIMT root is a function of the entire leaf sequence, so one skipped
+ * `NoteActivated` yields a root that was never on-chain rather than an old one. Lagging
+ * behind the head is fine and common — the pool keeps `ROOT_HISTORY_SIZE` past roots and
+ * `withdraw` accepts any of them — but a hole is not, and the two are indistinguishable
+ * from leaf count alone. So this applies the pool's own `_isKnownRoot` test off-chain:
+ * pass it and every proof cut from this tree is spendable, fail it and none are.
+ *
+ * @returns The tree when the chain recognises its root, otherwise `null`.
+ */
+async function agreedTree(chain, activated) {
+  const tree = reconstructL2StateTree(activated);
+  if (activated.length === 0) return tree;
+
+  const historySize = Number(
+    await multicall(chain, [
+      { address: chain.poolAddress, abi: l2StatusAbi, functionName: "ROOT_HISTORY_SIZE" },
+    ]).then(([size]) => size),
+  );
+  const history = await multicall(
+    chain,
+    Array.from({ length: historySize }, (_, slot) => ({
+      address: chain.poolAddress,
+      abi: l2StatusAbi,
+      functionName: "roots",
+      args: [BigInt(slot)],
+    })),
+  );
+  return history.some((root) => root !== 0n && root === tree.root) ? tree : null;
+}
+
 l2Router.get("/:chain/index", async (req, res) => {
   const chain = resolve(req, res, { configured: false, candidates: [], proofs: [] });
   if (!chain) return undefined;
@@ -41,13 +74,22 @@ l2Router.get("/:chain/index", async (req, res) => {
   try {
     const [deliveries, lifecycle, scope] = await Promise.all([
       readL1L2Notes(),
-      readEvmL2NoteEvents(chain),
+      readEvmL2NoteEvents(chain, { force: req.query.refresh === "1" }),
       evmL2Scope(chain),
     ]);
-    const { received, activated, spent } = lifecycle;
+    let { received, activated, spent } = lifecycle;
 
+    let tree = await agreedTree(chain, activated);
+    if (!tree) {
+      // The reconstruction disagreed with the chain, so the log stream has a hole.
+      // Replay it from the deployment block and re-check; serving proofs off the
+      // unverified tree would hand the client a root the pool has never held, and
+      // `withdraw` would revert with `UnknownStateRoot` only after a full proving run.
+      ({ received, activated, spent } = await readEvmL2NoteEvents(chain, { force: true }));
+      tree = await agreedTree(chain, activated);
+      if (!tree) throw new Error("Destination tree does not match the pool on-chain; refusing to serve proofs.");
+    }
     const candidates = buildScannableNotes(deliveries, received);
-    const tree = reconstructL2StateTree(activated);
     const proofs = activated.map((event) => {
       const index = tree.indexOf(event.commitment);
       return {

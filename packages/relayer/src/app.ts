@@ -12,6 +12,26 @@ import { CORS_ALLOW_ALL, ALLOWED_DOMAINS } from "./config/index.js";
 // Initialize the express app
 const app = express();
 
+// Proxy trust governs what `req.ip` resolves to, which is what the per-IP rate limit
+// keys on. Off by default (`req.ip` = socket peer). When the relayer sits behind a
+// reverse proxy, set RELAYER_TRUST_PROXY so X-Forwarded-For is honoured and callers
+// are limited individually rather than sharing the proxy's single bucket. Value is
+// passed through to Express: "true"/"false", a hop count, or a subnet/IP list.
+const trustProxy = process.env.RELAYER_TRUST_PROXY;
+if (trustProxy !== undefined && trustProxy !== "") {
+  const asNumber = Number(trustProxy);
+  app.set(
+    "trust proxy",
+    trustProxy === "true"
+      ? true
+      : trustProxy === "false"
+        ? false
+        : Number.isInteger(asNumber)
+          ? asNumber
+          : trustProxy,
+  );
+}
+
 // Middleware functions
 const parseJsonMiddleware = bodyParser.json();
 

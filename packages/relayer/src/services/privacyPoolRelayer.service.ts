@@ -2,10 +2,13 @@
  * Handles withdrawal requests within the Privacy Pool relayer.
  */
 import { getAddress } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import {
   getAssetConfig,
-  getFeeReceiverAddress
+  getFeeReceiverAddress,
+  getSignerPrivateKey
 } from "../config/index.js";
+import { KeyedSerialExecutor } from "../utils/keyedSerialExecutor.js";
 import {
   BlockchainError,
   RelayerError,
@@ -34,14 +37,38 @@ export class PrivacyPoolRelayer {
   protected sdkProvider: SdkProviderInterface;
   /** Web3 provider for handling blockchain interactions. */
   protected web3Provider: Web3Provider;
+  /** Serializes L1 broadcasts per signer so concurrent relays cannot race the nonce. */
+  private readonly signerQueue: KeyedSerialExecutor;
+  /** Memoized signer address per chain, for the queue key (deriving it is EC math). */
+  private readonly signerAddresses = new Map<number, string>();
 
   /**
    * Initializes a new instance of the Privacy Pool Relayer.
+   *
+   * @param {KeyedSerialExecutor} [signerQueue] - Injectable for tests; production uses a
+   *   per-process instance so every L1 relay shares one queue per signer.
    */
-  constructor() {
+  constructor(signerQueue: KeyedSerialExecutor = new KeyedSerialExecutor()) {
     this.db = db;
     this.sdkProvider = new SdkProvider();
     this.web3Provider = web3Provider;
+    this.signerQueue = signerQueue;
+  }
+
+  /**
+   * The serialization key for an L1 broadcast: one lane per (chain, signer). Two
+   * chains never share a nonce, so they run in parallel; the same signer on one
+   * chain is forced strictly serial.
+   */
+  private l1QueueKey(chainId: number): string {
+    let address = this.signerAddresses.get(chainId);
+    if (!address) {
+      address = privateKeyToAccount(
+        getSignerPrivateKey(chainId) as `0x${string}`,
+      ).address.toLowerCase();
+      this.signerAddresses.set(chainId, address);
+    }
+    return `l1:${chainId}:${address}`;
   }
 
   /**
@@ -145,16 +172,22 @@ export class PrivacyPoolRelayer {
     withdrawal: WithdrawalPayload,
     chainId: number,
   ): Promise<{ hash: string; }> {
-    try {
-      return await this.sdkProvider.broadcastWithdrawal(withdrawal, chainId);
-    } catch (error) {
-      if (isViemError(error)) {
-        const { metaMessages, shortMessage } = error;
-        throw BlockchainError.txError((metaMessages ? metaMessages[0] : undefined) || shortMessage);
-      } else {
-        throw RelayerError.unknown("Something went wrong while broadcasting Tx");
+    // Serialize per (chain, signer): the nonce is read and the tx signed inside
+    // `sdkProvider.broadcastWithdrawal`, so two concurrent relays on the same signer
+    // would otherwise both read the same nonce and one would be rejected. Only the
+    // broadcast is queued — proof verification above still runs in parallel.
+    return this.signerQueue.run(this.l1QueueKey(chainId), async () => {
+      try {
+        return await this.sdkProvider.broadcastWithdrawal(withdrawal, chainId);
+      } catch (error) {
+        if (isViemError(error)) {
+          const { metaMessages, shortMessage } = error;
+          throw BlockchainError.txError((metaMessages ? metaMessages[0] : undefined) || shortMessage);
+        } else {
+          throw RelayerError.unknown("Something went wrong while broadcasting Tx");
+        }
       }
-    }
+    });
   }
 
   /**

@@ -16,6 +16,13 @@ ARG BUILD_DATE=
 
 WORKDIR /build
 
+# V8 caps old-space at ~950 MB by default, and the SDK's `dist/types` pass
+# (rollup-plugin-dts, which holds the entire type graph at once) exceeds it:
+#   FATAL ERROR: Ineffective mark-compacts near heap limit
+# It is a V8 limit, not the kernel OOM killer, so neither host swap nor a bigger instance
+# changes anything — only raising the cap does.
+ENV NODE_OPTIONS=--max-old-space-size=3072
+
 # Workspace manifests first, so dependency installation caches independently of source.
 COPY package.json yarn.lock tsconfig.base.json ./
 COPY packages/sdk/package.json ./packages/sdk/
