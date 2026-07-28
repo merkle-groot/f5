@@ -203,7 +203,7 @@ const state = {
 const app = document.querySelector("#app");
 const sdk = () => import("@f5/privacy-pool-sdk");
 const icons = {
-  mark: `<img class="brand-eye" src="/f5-logo.png" alt="" aria-hidden="true">`,
+  mark: `<img class="brand-eye" src="/f5-logo.webp" alt="" aria-hidden="true">`,
   eth: `<span class="eth">Ξ</span>`,
 };
 
@@ -3257,7 +3257,6 @@ async function loadConfig() {
     if (!response.ok) throw new Error(`Configuration request failed (${response.status})`);
     state.config = await response.json();
     configAttempts = 0;
-    loadStarknetStatus();
     render();
   } catch (error) {
     // The API server is probably still booting; say so rather than blaming the user's config.
@@ -3974,6 +3973,14 @@ async function prepareL2Proof(note) {
 
 async function boot() {
   const mnemonic = unlockedSessionMnemonic();
+
+  // These independent public reads must begin together. In particular, do not
+  // make Starknet availability wait for /api/config's potentially cold RPC read.
+  void loadStarknetStatus();
+  // A restored vault awaits loadConfig in afterUnlock. Let that call own the
+  // request so its existing completion guarantee remains intact.
+  if (!(mnemonic && hasIdentity())) void loadConfig();
+
   if (mnemonic && hasIdentity()) {
     try {
       await adoptMnemonic(mnemonic);

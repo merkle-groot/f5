@@ -1,7 +1,42 @@
 import { defineConfig } from "vite";
+import { brotliCompress, constants as zlibConstants } from "node:zlib";
+import { promisify } from "node:util";
+import { readdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { fileURLToPath, URL } from "node:url";
 
+const compressBrotli = promisify(brotliCompress);
+const compressible = /\.(?:css|html|js|json|mjs|svg)$/;
+
+async function filesIn(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  return (await Promise.all(entries.map((entry) => {
+    const path = join(directory, entry.name);
+    return entry.isDirectory() ? filesIn(path) : [path];
+  }))).flat();
+}
+
+/** Emit static Brotli siblings for Caddy's `file_server precompressed br` support. */
+function precompressBuild() {
+  return {
+    name: "precompress-build",
+    apply: "build",
+    async closeBundle() {
+      const outputDirectory = fileURLToPath(new URL("./dist", import.meta.url));
+      const files = await filesIn(outputDirectory);
+      await Promise.all(files.filter((file) => compressible.test(file)).map(async (file) => {
+        const source = await readFile(file);
+        const compressed = await compressBrotli(source, {
+          params: { [zlibConstants.BROTLI_PARAM_QUALITY]: zlibConstants.BROTLI_MAX_QUALITY },
+        });
+        await writeFile(`${file}.br`, compressed);
+      }));
+    },
+  };
+}
+
 export default defineConfig({
+  plugins: [precompressBuild()],
   resolve: {
     alias: {
       assert: fileURLToPath(new URL("./src/assert-shim.js", import.meta.url)),

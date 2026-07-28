@@ -276,8 +276,8 @@ ops/               Deployment sanity-check scripts
 - Node.js and Yarn (Yarn workspaces)
 - [Foundry](https://book.getfoundry.sh/) for contracts
 - [`circom`](https://github.com/iden3/circom/releases/tag/v2.2.1) v2.2.1 and `snarkjs` for
-  circuit work. Install the released binary; CI pins the same version
-  (`.github/workflows/circuits.yml`). Do not vendor the compiler source into this repo.
+  circuit work. Install the released binary and match that version exactly, since a different
+  compiler produces a different circuit. Do not vendor the compiler source into this repo.
 - `scarb` 2.16.1 and `starknet-foundry` 0.57.0 for the Cairo pool (pinned in
   `packages/starknet-pool/.tool-versions`)
 

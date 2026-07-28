@@ -47,7 +47,23 @@
 	handle {
 		root * /srv/www
 		try_files {path} /index.html
-		file_server
+		# Brotli files are emitted alongside the build by vite.config.js. Caddy picks
+		# the best representation the browser advertises without a runtime compression
+		# pass on the origin.
+		file_server {
+			precompressed br zstd gzip
+		}
+
+		# Vite content-hashes these filenames, so a URL's bytes never change. Avoiding
+		# even conditional revalidation saves a full high-latency round trip on repeat
+		# visits.
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+		# The entry document has a stable URL and changes on deploy, so it must always
+		# be revalidated.
+		@entry path / /index.html
+		header @entry Cache-Control "no-cache"
 	}
 
 	header {
