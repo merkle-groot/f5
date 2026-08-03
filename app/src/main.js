@@ -30,7 +30,7 @@ import { SPENT_STATUS, largestFirst, matchingNotes, newestFirst, spentLast } fro
 import { nextWithdrawalIndex, recoverChangeNotes } from "./change-notes.js";
 import { deriveL2Status as deriveNoteStatus, spentNullifierSet } from "./l2-status.js";
 import { STARKNET_STATUS_RETRIES, starknetRetryDelayMs, starknetStatusUnsettled } from "./starknet-status.js";
-import { condenseError, errorHint } from "./error-hints.js";
+import { condenseError, describeError, errorHint } from "./error-hints.js";
 import { prove } from "./prove.js";
 import { txLinkHtml } from "./explorer.js";
 import { evmAddressProblem, recipientProblem } from "./recipient.js";
@@ -1999,23 +1999,6 @@ function normalizeWord(value) {
   return String(value ?? "").trim().toLowerCase().replace(/[^a-z]/g, "");
 }
 
-/**
- * Human-readable failure text.
- *
- * SDKError wraps the real cause: `throw ProofError.generationFailed({ error: <the actual message> })`
- * — so `error.message` is only ever the generic wrapper ("Failed to generate proof") and the useful
- * part sits in `details`. Reading just `.message` makes every SDK failure look identical and
- * undebuggable, so unwrap `details` here.
- */
-function describeError(error) {
-  if (!(error instanceof Error)) return String(error);
-  const details = error.details;
-  if (details && typeof details === "object") {
-    const inner = Object.values(details).filter((v) => typeof v === "string" && v && v !== error.message);
-    if (inner.length) return `${error.message}: ${inner.join(" · ")}`;
-  }
-  return error.message;
-}
 
 /**
  * JSON request body that tolerates bigints.

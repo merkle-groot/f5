@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { condenseError, errorHint } from "./error-hints.js";
+import { condenseError, describeError, errorHint } from "./error-hints.js";
 
 test("a verifier mismatch gives users a clear next step without operator commands", () => {
   // The exact shape the relayer surfaces: viem wraps the revert reason.
@@ -57,6 +57,14 @@ test("a provider outage is blamed on the provider, not the pool", () => {
   assert.match(hint, /not the pool/i);
 });
 
+test("a wallet refusing a background tab is blamed on the wallet, not the pool", () => {
+  // The exact string viem builds for a -32002 out of Brave Wallet's provider.
+  const hint = errorHint("Requested resource not available.\n\n"
+    + "Details: The tab is not active\nVersion: viem@2.22.14");
+  assert.match(hint, /wallet refusing, not the pool/i);
+  assert.match(hint, /bring it to the front/i);
+});
+
 test("a genuine revert still beats the RPC hints to the match", () => {
   // Reverts arrive over the same transport, so a 5xx pattern must not shadow them.
   assert.match(
@@ -67,6 +75,30 @@ test("a genuine revert still beats the RPC hints to the match", () => {
     errorHint('The contract function "withdraw" reverted. Error: NullifierAlreadySpent()'),
     /already spent/i,
   );
+});
+
+test("an EIP-1193 rejection that is not an Error still yields its message", () => {
+  // Exactly what Brave Wallet rejects with, and what wagmi's injected connector
+  // rethrows unwrapped for -32002. `String(error)` on this is "[object Object]".
+  const rejection = { code: -32002, message: "The tab is not active" };
+  const described = describeError(rejection);
+  assert.match(described, /The tab is not active/);
+  assert.match(described, /-32002/);
+  assert.doesNotMatch(described, /\[object Object\]/);
+  // And the hint line has to fire off that text, which is the whole point of keeping it.
+  assert.match(errorHint(described), /wallet refusing, not the pool/i);
+});
+
+test("describing an error keeps unwrapping SDK details and tolerates junk", () => {
+  const wrapped = Object.assign(new Error("Failed to generate proof"), {
+    details: { error: "witness calculation failed" },
+  });
+  assert.equal(describeError(wrapped), "Failed to generate proof: witness calculation failed");
+  assert.equal(describeError(new Error("plain")), "plain");
+  // A message-less object has nothing better to offer, so the old fallback stands.
+  assert.equal(describeError({ code: -1 }), "[object Object]");
+  assert.equal(describeError("just a string"), "just a string");
+  assert.equal(describeError(null), "null");
 });
 
 test("condensing keeps addresses and the trailing diagnosis, drops the hex walls", () => {
